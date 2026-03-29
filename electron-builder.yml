@@ -1,0 +1,46 @@
+appId: com.hitl.app
+productName: HITL
+directories:
+  buildResources: build
+  output: dist
+
+files:
+  - out/**/*
+  - "!out/**/*.map"
+
+# Bundle Prisma query engine + schema for production
+extraResources:
+  - from: node_modules/.prisma/client/query_engine-windows.dll.node
+    to: prisma/query_engine-windows.dll.node
+  - from: node_modules/.prisma/client/schema.prisma
+    to: prisma/schema.prisma
+  - from: prisma/migrations
+    to: prisma/migrations
+
+# Include native dependencies
+asar: true
+asarUnpack:
+  - "**/*.node"
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build/icon.ico
+  artifactName: "${productName}-Setup-${version}.${ext}"
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: HITL Orchestrator
+  uninstallDisplayName: HITL Orchestrator
+
+# Auto-update via GitHub releases (electron-updater)
+publish:
+  provider: github
+  owner: will-milliman
+  repo: hitl

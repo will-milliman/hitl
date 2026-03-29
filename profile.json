@@ -1,0 +1,17 @@
+{
+  "web-app": {
+    "repoPath": "C:/repos/web-app",
+    "defaultBranch": "main",
+    "description": "Main web application"
+  },
+  "backend-svc": {
+    "repoPath": "C:/repos/backend-svc",
+    "defaultBranch": "main",
+    "description": "Backend microservice"
+  },
+  "shared-lib": {
+    "repoPath": "C:/repos/shared-lib",
+    "defaultBranch": "develop",
+    "description": "Shared library package"
+  }
+}
