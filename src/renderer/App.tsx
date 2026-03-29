@@ -12,6 +12,7 @@ import { PlanApprovalGrid } from './grids/PlanApprovalGrid'
 import { TaskPRReviewGrid } from './grids/TaskPRReviewGrid'
 import { StoryPRReviewGrid } from './grids/StoryPRReviewGrid'
 import { CompletedGrid } from './grids/CompletedGrid'
+import { BlockedGrid } from './grids/BlockedGrid'
 import { GridState } from '../shared/constants'
 import type { Story } from '../shared/types'
 
@@ -82,6 +83,7 @@ function AppContent() {
       [GridState.TASK_PR_REVIEW]: [],
       [GridState.STORY_PR_REVIEW]: [],
       [GridState.COMPLETED]: [],
+      [GridState.BLOCKED]: [],
     }
     for (const story of stories) {
       if (grouped[story.state]) {
@@ -127,6 +129,9 @@ function AppContent() {
       <CompletedGrid
         stories={storiesByState[GridState.COMPLETED]}
         tasks={completedTasks}
+      />
+      <BlockedGrid
+        stories={storiesByState[GridState.BLOCKED]}
       />
     </>
   )

@@ -25,6 +25,7 @@ import {
 import { getDb } from '../db'
 import { getAzureConfig } from './config'
 import { createLogger } from '../logger'
+import { GridState } from '../../shared/constants'
 
 const logger = createLogger('sync')
 
@@ -104,28 +105,57 @@ export async function syncWorkItems(): Promise<void> {
   for (const story of allStories) {
     const id = story.fields['System.Id']
     const title = story.fields['System.Title']
+    const azureState = story.fields['System.State']
     const azureUrl = workItemUrl(config.org, config.project, id)
+    const isBlocked = azureState === 'Blocked'
 
     // Check if this story already exists in the DB
     const existing = await db.story.findUnique({ where: { id } })
 
     if (existing) {
-      // Only update title and azureUrl — don't overwrite grid state or profile
-      await db.story.update({
-        where: { id },
-        data: { title, azureUrl },
-      })
+      if (isBlocked && existing.state !== GridState.BLOCKED) {
+        // Story became blocked in Azure — move it to BLOCKED grid
+        await db.story.update({
+          where: { id },
+          data: {
+            title,
+            azureUrl,
+            state: GridState.BLOCKED,
+            disabled: false,
+          },
+        })
+        logger.info(`Story #${id} moved to BLOCKED (Azure state: ${azureState})`)
+      } else if (!isBlocked && existing.state === GridState.BLOCKED) {
+        // Story is no longer blocked in Azure — re-enter pipeline
+        await db.story.update({
+          where: { id },
+          data: {
+            title,
+            azureUrl,
+            state: GridState.PROFILE_ASSIGNMENT,
+            disabled: false,
+          },
+        })
+        logger.info(`Story #${id} unblocked, moved back to PROFILE_ASSIGNMENT`)
+      } else {
+        // Only update title and azureUrl — don't overwrite grid state or profile
+        await db.story.update({
+          where: { id },
+          data: { title, azureUrl },
+        })
+      }
     } else {
-      // New story — starts in PROFILE_ASSIGNMENT
+      // New story — starts in BLOCKED if Azure state is Blocked, otherwise PROFILE_ASSIGNMENT
+      const initialState = isBlocked ? GridState.BLOCKED : GridState.PROFILE_ASSIGNMENT
       await db.story.create({
         data: {
           id,
           title,
           azureUrl,
-          state: 'PROFILE_ASSIGNMENT',
+          state: initialState,
         },
       })
-      logger.info(`New story: #${id} "${title}"`)
+      logger.info(`New story: #${id} "${title}" (state: ${initialState})`)
     }
   }
 

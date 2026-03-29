@@ -5,6 +5,7 @@ export enum GridState {
   TASK_PR_REVIEW = 'TASK_PR_REVIEW',
   STORY_PR_REVIEW = 'STORY_PR_REVIEW',
   COMPLETED = 'COMPLETED',
+  BLOCKED = 'BLOCKED',
 }
 
 export const GRID_LABELS: Record<GridState, string> = {
@@ -13,6 +14,7 @@ export const GRID_LABELS: Record<GridState, string> = {
   [GridState.TASK_PR_REVIEW]: 'Task PR Review',
   [GridState.STORY_PR_REVIEW]: 'Story PR Review',
   [GridState.COMPLETED]: 'Completed',
+  [GridState.BLOCKED]: 'Blocked',
 }
 
 export const IDLE_THRESHOLD_SECONDS = 900 // 15 minutes
