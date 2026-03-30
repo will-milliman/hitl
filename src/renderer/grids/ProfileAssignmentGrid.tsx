@@ -2,26 +2,26 @@ import React, { useMemo } from 'react'
 import { createColumnHelper } from '@tanstack/react-table'
 import { Grid } from '../components/Grid'
 import { ExternalLink, ProfileSelect } from '../components/common'
-import type { Story } from '../../shared/types'
+import type { Task } from '../../shared/types'
 import { theme } from '../styles/theme'
 
-const columnHelper = createColumnHelper<Story>()
+const columnHelper = createColumnHelper<Task>()
 
 interface ProfileAssignmentGridProps {
-  stories: Story[]
+  tasks: Task[]
   profiles: string[]
-  onAssignProfile: (storyId: number, profileKey: string) => void
+  onAssignProfile: (taskId: number, profileKey: string) => void
 }
 
 export function ProfileAssignmentGrid({
-  stories,
+  tasks,
   profiles,
   onAssignProfile,
 }: ProfileAssignmentGridProps) {
   const columns = useMemo(
     () => [
       columnHelper.accessor('id', {
-        header: 'Story Id',
+        header: 'Task Id',
         cell: (info) => (
           <ExternalLink href={info.row.original.azureUrl}>
             {info.getValue()}
@@ -29,7 +29,20 @@ export function ProfileAssignmentGrid({
         ),
       }),
       columnHelper.accessor('title', {
-        header: 'Story Title',
+        header: 'Task Title',
+      }),
+      columnHelper.display({
+        id: 'story',
+        header: 'Story',
+        cell: (info) => {
+          const story = info.row.original.story
+          if (!story) return null
+          return (
+            <ExternalLink href={story.azureUrl}>
+              #{story.id}
+            </ExternalLink>
+          )
+        },
       }),
       columnHelper.display({
         id: 'profile',
@@ -49,7 +62,7 @@ export function ProfileAssignmentGrid({
   return (
     <Grid
       title="Profile Assignment"
-      data={stories}
+      data={tasks}
       columns={columns}
       accentColor={theme.colors.mauve}
     />

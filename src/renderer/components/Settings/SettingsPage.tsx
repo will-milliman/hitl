@@ -147,6 +147,28 @@ const Input = styled.input`
   }
 `
 
+const Select = styled.select`
+  background: ${({ theme }) => theme.colors.surface0};
+  color: ${({ theme }) => theme.colors.text};
+  border: 1px solid ${({ theme }) => theme.colors.surface1};
+  border-radius: ${({ theme }) => theme.radii.sm};
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: ${({ theme }) => theme.fonts.mono};
+  width: 100%;
+  cursor: pointer;
+
+  &:focus {
+    outline: none;
+    border-color: ${({ theme }) => theme.colors.mauve};
+  }
+
+  option {
+    background: ${({ theme }) => theme.colors.surface0};
+    color: ${({ theme }) => theme.colors.text};
+  }
+`
+
 const Toggle = styled.input`
   accent-color: ${({ theme }) => theme.colors.mauve};
   width: 16px;
@@ -241,13 +263,14 @@ const StatusText = styled.span<{ $color?: string }>`
 
 // ─── Types ──────────────────────────────────────────────
 
-type TabId = 'azure' | 'cron' | 'profiles' | 'notifications' | 'about'
+type TabId = 'azure' | 'cron' | 'profiles' | 'notifications' | 'terminal' | 'about'
 
 interface SettingsData {
   azure: { org: string; project: string; pat: string; team: string }
   cron: { intervalSeconds: number; idleThresholdSeconds: number }
   profiles: Record<string, { repoPath: string; defaultBranch: string; description?: string }>
-  notifications: { enabled: boolean; planApprovalReady: boolean; prReviewNeeded: boolean; cronErrors: boolean }
+  notifications: { enabled: boolean; prReviewNeeded: boolean; taskCompleted: boolean; cronErrors: boolean }
+  terminal: { shell: 'pwsh' | 'powershell' | 'cmd' }
 }
 
 // ─── Component ──────────────────────────────────────────
@@ -273,10 +296,8 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
   const [formData, setFormData] = useState<SettingsData | null>(null)
   const [cronFlags, setCronFlags] = useState<{
     syncEnabled: boolean
-    planningEnabled: boolean
     taskExecutionEnabled: boolean
     prCheckEnabled: boolean
-    storyPrCheckEnabled: boolean
   } | null>(null)
 
   // New profile form state
@@ -293,10 +314,8 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
     if (cronStateQuery.data && !cronFlags) {
       setCronFlags({
         syncEnabled: cronStateQuery.data.syncEnabled,
-        planningEnabled: cronStateQuery.data.planningEnabled,
         taskExecutionEnabled: cronStateQuery.data.taskExecutionEnabled,
         prCheckEnabled: cronStateQuery.data.prCheckEnabled,
-        storyPrCheckEnabled: cronStateQuery.data.storyPrCheckEnabled,
       })
     }
   }, [cronStateQuery.data, cronFlags])
@@ -375,6 +394,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
             ['cron', 'Cron Jobs'],
             ['profiles', 'Profiles'],
             ['notifications', 'Notifications'],
+            ['terminal', 'Terminal'],
             ['about', 'About'],
           ] as [TabId, string][]).map(([id, label]) => (
             <Tab
@@ -467,10 +487,8 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                 <FieldGroup>
                   {cronFlags && ([
                     ['syncEnabled', 'Azure DevOps Sync'],
-                    ['planningEnabled', 'Planning (worktree setup + copilot)'],
-                    ['taskExecutionEnabled', 'Task Execution'],
-                    ['prCheckEnabled', 'Task PR Check'],
-                    ['storyPrCheckEnabled', 'Story PR Check'],
+                    ['taskExecutionEnabled', 'Task Execution (worktree setup + copilot)'],
+                    ['prCheckEnabled', 'PR Check'],
                   ] as const).map(([key, label]) => (
                     <FieldRow key={key}>
                       <Toggle
@@ -614,11 +632,11 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                 <FieldRow>
                   <Toggle
                     type="checkbox"
-                    checked={formData.notifications.planApprovalReady}
+                    checked={formData.notifications.taskCompleted}
                     disabled={!formData.notifications.enabled}
-                    onChange={(e) => updateField('notifications', 'planApprovalReady', e.target.checked)}
+                    onChange={(e) => updateField('notifications', 'taskCompleted', e.target.checked)}
                   />
-                  <ToggleLabel>Plan approval ready</ToggleLabel>
+                  <ToggleLabel>Task completed</ToggleLabel>
                 </FieldRow>
                 <FieldRow>
                   <Toggle
@@ -638,6 +656,32 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                   />
                   <ToggleLabel>Cron errors</ToggleLabel>
                 </FieldRow>
+              </FieldGroup>
+            </Section>
+          )}
+
+          {/* ─── Terminal Tab ─── */}
+          {activeTab === 'terminal' && (
+            <Section>
+              <SectionTitle>Terminal Configuration</SectionTitle>
+              <FieldGroup>
+                <Field>
+                  <FieldLabel>Shell</FieldLabel>
+                  <Select
+                    value={formData.terminal.shell}
+                    onChange={(e) =>
+                      updateField('terminal', 'shell', e.target.value as 'pwsh' | 'powershell' | 'cmd')
+                    }
+                  >
+                    <option value="pwsh">pwsh (PowerShell 7)</option>
+                    <option value="powershell">powershell (Windows PowerShell 5.1)</option>
+                    <option value="cmd">cmd (Command Prompt)</option>
+                  </Select>
+                </Field>
+                <StatusText>
+                  Used when opening Copilot sessions in Windows Terminal.
+                  Choose the shell that matches your default terminal profile.
+                </StatusText>
               </FieldGroup>
             </Section>
           )}

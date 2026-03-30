@@ -14,15 +14,14 @@ export {
   readLatestSignal,
   clearSignals,
   ensureDirs,
+  getLogDir,
   SIGNAL_FILES,
   type SpawnSessionOptions,
   type SpawnSessionResult,
 } from './session'
 
 export {
-  setupHooks,
-  hasHooks,
-  ensureGitignore,
+  ensureGlobalHooks,
 } from './hooks'
 
 export {

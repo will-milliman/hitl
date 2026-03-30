@@ -5,11 +5,9 @@
  * 1. Checks if the system is idle (powerMonitor)
  * 2. Checks CronState flags to see which steps are enabled
  * 3. Executes the Azure DevOps sync step (if enabled)
- * 4. Sets up worktrees for newly profile-assigned stories (if enabled)
- * 5. Spawns copilot planning sessions (if enabled)
- * 6. Spawns copilot task execution sessions (if enabled)
- * 7. Checks task PRs for comments/merges (if enabled)
- * 8. Checks story PRs for comments/merges (if enabled)
+ * 4. Sets up worktrees for newly profile-assigned tasks (if enabled)
+ * 5. Spawns copilot task execution sessions (if enabled)
+ * 6. Checks task PRs for comments/merges (if enabled)
  *
  * Each step is isolated — a failure in one step does not prevent
  * subsequent steps from running. Errors are logged and tracked.
@@ -18,11 +16,9 @@
 import { powerMonitor } from 'electron'
 import { getDb } from '../db'
 import { syncWorkItems } from './sync'
-import { setupStoryWorktrees } from './worktree-setup'
-import { runPlanningStep, resumeStoryWatchers } from './planning'
+import { setupTaskWorktrees } from './worktree-setup'
 import { runTaskExecutionStep, resumeTaskWatchers } from './task-execution'
 import { runPrCheckStep } from './pr-check'
-import { runStoryPrCheckStep } from './story-pr-check'
 import { IDLE_THRESHOLD_SECONDS } from '../../shared/constants'
 import { createLogger } from '../logger'
 import { notifyCronError } from '../notifications'
@@ -82,29 +78,6 @@ async function runStep(
 }
 
 /**
- * Records an error on a story in the database.
- */
-export async function recordStoryError(
-  storyId: number,
-  errorMessage: string
-): Promise<void> {
-  try {
-    const db = getDb()
-    await db.story.update({
-      where: { id: storyId },
-      data: {
-        errorMessage,
-        errorAt: new Date(),
-      },
-    })
-  } catch (err) {
-    logger.error(`Failed to record error for story #${storyId}`, {
-      error: err instanceof Error ? err.message : String(err),
-    })
-  }
-}
-
-/**
  * Records an error on a task in the database.
  */
 export async function recordTaskError(
@@ -128,24 +101,6 @@ export async function recordTaskError(
 }
 
 /**
- * Clears an error on a story in the database.
- */
-export async function clearStoryError(storyId: number): Promise<void> {
-  try {
-    const db = getDb()
-    await db.story.update({
-      where: { id: storyId },
-      data: {
-        errorMessage: null,
-        errorAt: null,
-      },
-    })
-  } catch {
-    // Silently ignore — clearing errors is best-effort
-  }
-}
-
-/**
  * Clears an error on a task in the database.
  */
 export async function clearTaskError(taskId: number): Promise<void> {
@@ -159,7 +114,7 @@ export async function clearTaskError(taskId: number): Promise<void> {
       },
     })
   } catch {
-    // Silently ignore
+    // Silently ignore — clearing errors is best-effort
   }
 }
 
@@ -197,40 +152,29 @@ async function tick(): Promise<void> {
     }
 
     // 3. Execute steps based on flags — each step is isolated
+
     // Step 1: Azure DevOps sync
     if (flags.syncEnabled) {
       const err = await runStep('Azure DevOps sync', syncWorkItems)
       if (err) cronStatus.stepErrors['sync'] = err
     }
 
-    // Step 2: Worktree setup for newly profile-assigned stories
-    if (flags.planningEnabled) {
-      const err = await runStep('Worktree setup', setupStoryWorktrees)
+    // Step 2: Worktree setup for newly profile-assigned tasks
+    if (flags.taskExecutionEnabled) {
+      const err = await runStep('Worktree setup', setupTaskWorktrees)
       if (err) cronStatus.stepErrors['worktreeSetup'] = err
     }
 
-    // Step 3: Planning step — spawn copilot sessions for stories ready to plan
-    if (flags.planningEnabled) {
-      const err = await runStep('Planning', runPlanningStep)
-      if (err) cronStatus.stepErrors['planning'] = err
-    }
-
-    // Step 4: Task execution step — spawn copilot sessions for tasks ready to implement
+    // Step 3: Task execution step — spawn copilot sessions for tasks ready to implement
     if (flags.taskExecutionEnabled) {
       const err = await runStep('Task execution', runTaskExecutionStep)
       if (err) cronStatus.stepErrors['taskExecution'] = err
     }
 
-    // Step 5: PR check step — create task PRs, check comments/merges
+    // Step 4: PR check step — create task PRs, check comments/merges
     if (flags.prCheckEnabled) {
       const err = await runStep('PR check', runPrCheckStep)
       if (err) cronStatus.stepErrors['prCheck'] = err
-    }
-
-    // Step 6: Story PR check step — create story PRs, check comments/merges
-    if (flags.storyPrCheckEnabled) {
-      const err = await runStep('Story PR check', runStoryPrCheckStep)
-      if (err) cronStatus.stepErrors['storyPrCheck'] = err
     }
 
     // Update last run timestamp
@@ -274,11 +218,6 @@ export function startCron(): void {
   logger.info('Starting scheduler (60s interval)')
 
   // Resume signal watchers from previous session
-  resumeStoryWatchers().catch((err) => {
-    logger.error('Failed to resume story watchers', {
-      error: err instanceof Error ? err.message : String(err),
-    })
-  })
   resumeTaskWatchers().catch((err) => {
     logger.error('Failed to resume task watchers', {
       error: err instanceof Error ? err.message : String(err),

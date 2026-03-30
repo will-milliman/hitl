@@ -33,14 +33,20 @@ export interface AppSettings {
     repoPath: string
     defaultBranch: string
     description?: string
+    workspace?: string
   }>
 
   // Notifications
   notifications: {
     enabled: boolean
-    planApprovalReady: boolean
     prReviewNeeded: boolean
+    taskCompleted: boolean
     cronErrors: boolean
+  }
+
+  // Terminal
+  terminal: {
+    shell: 'pwsh' | 'powershell' | 'cmd'
   }
 }
 
@@ -58,9 +64,12 @@ const DEFAULTS: AppSettings = {
   profiles: {},
   notifications: {
     enabled: true,
-    planApprovalReady: true,
     prReviewNeeded: true,
+    taskCompleted: true,
     cronErrors: true,
+  },
+  terminal: {
+    shell: 'pwsh',
   },
 }
 
@@ -107,9 +116,12 @@ export function loadSettings(): AppSettings {
     profiles: stored.profiles ?? DEFAULTS.profiles,
     notifications: {
       enabled: stored.notifications?.enabled ?? DEFAULTS.notifications.enabled,
-      planApprovalReady: stored.notifications?.planApprovalReady ?? DEFAULTS.notifications.planApprovalReady,
       prReviewNeeded: stored.notifications?.prReviewNeeded ?? DEFAULTS.notifications.prReviewNeeded,
+      taskCompleted: stored.notifications?.taskCompleted ?? DEFAULTS.notifications.taskCompleted,
       cronErrors: stored.notifications?.cronErrors ?? DEFAULTS.notifications.cronErrors,
+    },
+    terminal: {
+      shell: stored.terminal?.shell ?? DEFAULTS.terminal.shell,
     },
   }
 
@@ -154,6 +166,7 @@ export function updateSettings(partial: Partial<AppSettings>): AppSettings {
     cron: { ...current.cron, ...partial.cron },
     profiles: partial.profiles !== undefined ? partial.profiles : current.profiles,
     notifications: { ...current.notifications, ...partial.notifications },
+    terminal: { ...current.terminal, ...partial.terminal },
   }
   saveSettings(updated)
   return updated
@@ -164,4 +177,12 @@ export function updateSettings(partial: Partial<AppSettings>): AppSettings {
  */
 export function clearSettingsCache(): void {
   cached = null
+}
+
+/**
+ * Convenience: loads the profile map from settings.
+ * Falls back to profile.json if no profiles configured in settings.
+ */
+export function loadProfiles(): Record<string, { repoPath: string; defaultBranch: string; description?: string; workspace?: string }> {
+  return loadSettings().profiles
 }

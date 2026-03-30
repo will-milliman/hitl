@@ -318,3 +318,68 @@ export function formatRelativeTime(date: Date | string | null | undefined): stri
   const days = Math.floor(hours / 24)
   return `${days}d ago`
 }
+
+// ─── Activity Indicator (bouncing squares) ───────────────
+
+const SQUARE_COUNT = 8
+const ANIMATION_DURATION = 1.6 // seconds for a full cycle
+
+const ActivityWrapper = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 14px;
+`
+
+const ActivitySquare = styled.span<{ $index: number; $color?: string }>`
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  border-radius: 1px;
+  background: ${({ $color, theme }) => $color ?? theme.colors.blue};
+  animation: bounce ${ANIMATION_DURATION}s ease-in-out infinite;
+  animation-delay: ${({ $index }) => {
+    // Each square gets a staggered delay creating the wave effect
+    const delay = ($index / SQUARE_COUNT) * (ANIMATION_DURATION / 2)
+    return `${delay}s`
+  }};
+
+  @keyframes bounce {
+    0%, 100% {
+      transform: scaleY(1);
+      opacity: 0.4;
+    }
+    25% {
+      transform: scaleY(2.2);
+      opacity: 1;
+    }
+    50% {
+      transform: scaleY(1);
+      opacity: 0.4;
+    }
+  }
+`
+
+interface ActivityIndicatorProps {
+  /** Tooltip text shown on hover */
+  tooltip?: string
+  /** Accent color for the squares (defaults to theme blue) */
+  color?: string
+}
+
+/**
+ * Animated activity indicator with bouncing squares.
+ *
+ * Displays a wave of small squares that pulse in sequence,
+ * creating a flowing left-to-right animation effect.
+ * Context is provided via tooltip on hover.
+ */
+export function ActivityIndicator({ tooltip, color }: ActivityIndicatorProps) {
+  return (
+    <ActivityWrapper title={tooltip}>
+      {Array.from({ length: SQUARE_COUNT }, (_, i) => (
+        <ActivitySquare key={i} $index={i} $color={color} />
+      ))}
+    </ActivityWrapper>
+  )
+}

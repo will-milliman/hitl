@@ -38,7 +38,7 @@ export async function initDatabase(): Promise<PrismaClient> {
     datasources: {
       db: { url: databaseUrl },
     },
-    log: app.isPackaged ? ['error'] : ['query', 'error', 'warn'],
+    log: app.isPackaged ? ['error'] : ['error', 'warn'],
   })
 
   // Connect and ensure CronState singleton exists

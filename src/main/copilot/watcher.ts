@@ -1,25 +1,22 @@
 /**
  * Session signal watcher.
  *
- * Watches `.hitl-signals/` directories in worktrees for changes
- * written by Copilot CLI hook scripts. When a signal file changes,
- * updates the database (disabled state) accordingly.
+ * Watches signal directories for changes written by Copilot CLI hook scripts.
+ * When a signal file changes, updates the database (disabled state) accordingly.
  *
  * Signal flow:
  * 1. Copilot CLI fires a hook event (sessionEnd, postToolUse)
- * 2. Hook script writes a signal file to .hitl-signals/
+ * 2. Hook script writes a signal file to the signal directory
  * 3. This watcher detects the file change
- * 4. Updates the Story/Task disabled state in the database
+ * 4. Updates the Task disabled state in the database
  *
  * - SESSION_ACTIVE (postToolUse) → agent is working → disabled = true
  * - SESSION_END (sessionEnd) → session finished → disabled = false (awaiting human)
  */
 
 import { watch, existsSync, mkdirSync } from 'fs'
-import { join } from 'path'
 import { getDb } from '../db'
-import { readLatestSignal, SIGNAL_FILES } from './session'
-import { notifyPlanReady } from '../notifications'
+import { readLatestSignal, SIGNAL_FILES, getSignalDir } from './session'
 
 /** Map of watched paths to their fs.watch handles */
 const watchers = new Map<string, ReturnType<typeof watch>>()
@@ -34,15 +31,14 @@ const DEBOUNCE_MS = 1_000
  * Starts watching a worktree's signal directory for changes.
  *
  * @param worktreePath Absolute path to the worktree
- * @param entityType 'story' or 'task'
- * @param entityId The work item ID (story or task)
+ * @param taskId The task work item ID
  */
 export function watchSignals(
   worktreePath: string,
-  entityType: 'story' | 'task',
+  entityType: 'task',
   entityId: number
 ): void {
-  const signalDir = join(worktreePath, '.hitl-signals')
+  const signalDir = getSignalDir(worktreePath)
 
   // Don't double-watch
   if (watchers.has(worktreePath)) return
@@ -52,7 +48,7 @@ export function watchSignals(
     mkdirSync(signalDir, { recursive: true })
   }
 
-  console.log(`[watcher] Watching signals for ${entityType} #${entityId} in ${signalDir}`)
+  console.log(`[watcher] Watching signals for task #${entityId} in ${signalDir}`)
 
   const watcher = watch(signalDir, { persistent: false }, (eventType, filename) => {
     if (!filename) return
@@ -66,8 +62,8 @@ export function watchSignals(
       key,
       setTimeout(() => {
         debounceTimers.delete(key)
-        processSignal(worktreePath, entityType, entityId).catch((err) => {
-          console.error(`[watcher] Error processing signal for ${entityType} #${entityId}:`, err)
+        processSignal(worktreePath, entityId).catch((err) => {
+          console.error(`[watcher] Error processing signal for task #${entityId}:`, err)
         })
       }, DEBOUNCE_MS)
     )
@@ -115,67 +111,40 @@ export function unwatchAll(): void {
  */
 async function processSignal(
   worktreePath: string,
-  entityType: 'story' | 'task',
-  entityId: number
+  taskId: number
 ): Promise<void> {
   const signal = readLatestSignal(worktreePath)
   if (!signal) return
 
   const db = getDb()
 
-  console.log(`[watcher] Signal for ${entityType} #${entityId}: ${signal.signal}`)
+  console.log(`[watcher] Signal for task #${taskId}: ${signal.signal}`)
 
   switch (signal.signal) {
     case SIGNAL_FILES.SESSION_ACTIVE:
       // Agent is actively working — keep disabled
-      if (entityType === 'story') {
-        await db.story.update({
-          where: { id: entityId },
-          data: { disabled: true },
-        })
-      } else {
-        await db.task.update({
-          where: { id: entityId },
-          data: { disabled: true },
-        })
-      }
+      await db.task.update({
+        where: { id: taskId },
+        data: { disabled: true },
+      })
       break
 
     case SIGNAL_FILES.SESSION_END:
       // Session ended — agent is done, enable for human review
-      if (entityType === 'story') {
-        const story = await db.story.findUnique({ where: { id: entityId } })
-        await db.story.update({
-          where: { id: entityId },
-          data: { disabled: false },
-        })
-        // Notify if plan is ready for approval
-        if (story && story.state === 'PLAN_APPROVAL') {
-          notifyPlanReady(entityId, story.title)
-        }
-      } else {
-        await db.task.update({
-          where: { id: entityId },
-          data: { disabled: false },
-        })
-      }
+      await db.task.update({
+        where: { id: taskId },
+        data: { disabled: false },
+      })
       // Stop watching — session is over
       unwatchSignals(worktreePath)
       break
 
     case SIGNAL_FILES.SESSION_IDLE:
       // Session is idle — waiting for human input, enable row
-      if (entityType === 'story') {
-        await db.story.update({
-          where: { id: entityId },
-          data: { disabled: false },
-        })
-      } else {
-        await db.task.update({
-          where: { id: entityId },
-          data: { disabled: false },
-        })
-      }
+      await db.task.update({
+        where: { id: taskId },
+        data: { disabled: false },
+      })
       break
 
     default:

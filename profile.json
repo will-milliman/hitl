@@ -2,6 +2,7 @@
   "integrate": {
     "repoPath": "C:/Projects/rainier",
     "defaultBranch": "main",
-    "description": "Integrate App"
+    "description": "Integrate App",
+    "workspace": "/monorepo/desktop/ui/.vscode/integrate.code-workspace"
   }
 }

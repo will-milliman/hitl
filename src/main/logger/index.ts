@@ -10,8 +10,9 @@
  */
 
 import { mkdirSync, appendFileSync, existsSync, readdirSync, readFileSync, statSync } from 'fs'
-import { join, resolve } from 'path'
+import { join, resolve, basename } from 'path'
 import { app } from 'electron'
+import { tmpdir } from 'os'
 
 // ─── Types ───────────────────────────────────────────────
 
@@ -245,7 +246,9 @@ export function getLogDir(): string {
 // ─── Session Log Aggregation ─────────────────────────────
 
 /**
- * Reads copilot session logs from a worktree's .hitl-logs directory.
+ * Reads copilot session logs from the external data directory for a worktree.
+ *
+ * Logs are stored outside the worktree in `<temp>/.hitl-data/<worktree-name>/logs/`.
  *
  * @param worktreePath Path to the worktree
  * @returns Array of { sessionId, logContent, size, modifiedAt }
@@ -253,7 +256,8 @@ export function getLogDir(): string {
 export function getSessionLogs(
   worktreePath: string
 ): Array<{ sessionId: string; logContent: string; size: number; modifiedAt: Date }> {
-  const sessionLogDir = join(worktreePath, '.hitl-logs')
+  const worktreeName = basename(worktreePath)
+  const sessionLogDir = join(tmpdir(), '.hitl-data', worktreeName, 'logs')
   if (!existsSync(sessionLogDir)) return []
 
   try {

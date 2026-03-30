@@ -1,39 +1,20 @@
 import { initTRPC } from '@trpc/server'
 import { z } from 'zod'
-import { readFileSync } from 'fs'
-import { join } from 'path'
-import { shell } from 'electron'
 import { exec } from 'child_process'
 import { getDb } from '../db'
 import { getCronStatus } from '../cron'
 import { getAzureConfig } from '../cron/config'
 import { listWorktrees, pruneWorktrees } from '../worktree'
 import { openSessionInTerminal, getActiveWatcherCount } from '../copilot'
-import { approvePlan, parsePlanFile } from '../cron/plan-approval'
 import { isGhAuthenticated } from '../github'
 import { getRecentLogs, listLogFiles, readLogFile, getLogDir, getSessionLogs } from '../logger'
 import { getUpdateStatus, checkForUpdates, installUpdate } from '../updater'
-import { loadSettings, updateSettings } from '../settings'
+import { loadSettings, updateSettings, loadProfiles } from '../settings'
 import { GRID_LABELS } from '../../shared/constants'
-import type { ProfileMap } from '../../shared/types'
 import type { LogLevel } from '../logger'
+import { join } from 'path'
 
 const t = initTRPC.create()
-
-/**
- * Reads profile.json from the project root.
- * Returns the parsed ProfileMap or an empty object on failure.
- */
-function loadProfiles(): ProfileMap {
-  try {
-    const profilePath = join(__dirname, '../../profile.json')
-    const raw = readFileSync(profilePath, 'utf-8')
-    return JSON.parse(raw) as ProfileMap
-  } catch (err) {
-    console.error('[router] Failed to load profile.json:', err)
-    return {}
-  }
-}
 
 export const appRouter = t.router({
   // ─── Queries ──────────────────────────────────────────
@@ -43,26 +24,33 @@ export const appRouter = t.router({
     return { status: 'ok', timestamp: Date.now() }
   }),
 
-  /** Get all stories */
+  /** Get all stories (lightweight parent references) */
   stories: t.procedure.query(async () => {
     const db = getDb()
-    return db.story.findMany({
-      orderBy: { updatedAt: 'desc' },
-    })
+    return db.story.findMany()
   }),
 
-  /** Get all tasks (optionally filtered by storyId) */
+  /** Get all tasks (optionally filtered by state or storyId) */
   tasks: t.procedure
-    .input(z.object({ storyId: z.number().optional() }).optional())
+    .input(
+      z.object({
+        state: z.string().optional(),
+        storyId: z.number().optional(),
+      }).optional()
+    )
     .query(async ({ input }) => {
       const db = getDb()
+      const where: Record<string, unknown> = {}
+      if (input?.state) where.state = input.state
+      if (input?.storyId) where.storyId = input.storyId
       return db.task.findMany({
-        where: input?.storyId ? { storyId: input.storyId } : undefined,
-        orderBy: { storyId: 'asc' },
+        where,
+        include: { story: true },
+        orderBy: { updatedAt: 'desc' },
       })
     }),
 
-  /** Get available profiles from profile.json */
+  /** Get available profiles */
   profiles: t.procedure.query(() => {
     return loadProfiles()
   }),
@@ -89,31 +77,31 @@ export const appRouter = t.router({
 
   // ─── Mutations ────────────────────────────────────────
 
-  /** Assign a profile to a story and advance it to PLAN_APPROVAL */
-  assignProfile: t.procedure
+  /** Assign a profile to a task and advance it to TASK_EXECUTION */
+  assignTaskProfile: t.procedure
     .input(
       z.object({
-        storyId: z.number(),
+        taskId: z.number(),
         profileKey: z.string(),
       })
     )
     .mutation(async ({ input }) => {
       const db = getDb()
-      return db.story.update({
-        where: { id: input.storyId },
+      return db.task.update({
+        where: { id: input.taskId },
         data: {
           profileKey: input.profileKey,
-          state: 'PLAN_APPROVAL',
-          disabled: true, // Agent will begin planning
+          state: 'TASK_EXECUTION',
+          disabled: true, // Agent will begin working
         },
       })
     }),
 
-  /** Update a story's grid state */
-  updateStoryState: t.procedure
+  /** Update a task's state and optional fields */
+  updateTaskState: t.procedure
     .input(
       z.object({
-        storyId: z.number(),
+        taskId: z.number(),
         state: z.string(),
         disabled: z.boolean().optional(),
         worktreePath: z.string().nullish(),
@@ -122,26 +110,26 @@ export const appRouter = t.router({
       })
     )
     .mutation(async ({ input }) => {
-      const { storyId, ...data } = input
+      const { taskId, ...data } = input
       const db = getDb()
-      return db.story.update({
-        where: { id: storyId },
+      return db.task.update({
+        where: { id: taskId },
         data,
       })
     }),
 
-  /** Update a story's disabled state */
-  updateStoryDisabled: t.procedure
+  /** Update a task's disabled state */
+  updateTaskDisabled: t.procedure
     .input(
       z.object({
-        storyId: z.number(),
+        taskId: z.number(),
         disabled: z.boolean(),
       })
     )
     .mutation(async ({ input }) => {
       const db = getDb()
-      return db.story.update({
-        where: { id: input.storyId },
+      return db.task.update({
+        where: { id: input.taskId },
         data: { disabled: input.disabled },
       })
     }),
@@ -177,25 +165,13 @@ export const appRouter = t.router({
       })
     }),
 
-  /** Flag a story's PR as updated (triggers comment check on next cron tick) */
-  markStoryPrUpdated: t.procedure
-    .input(z.object({ storyId: z.number() }))
-    .mutation(async ({ input }) => {
-      const db = getDb()
-      return db.story.update({
-        where: { id: input.storyId },
-        data: { prUpdated: true },
-      })
-    }),
-
-  /** Upsert a story (used by Azure DevOps sync in cron job) */
+  /** Upsert a story (lightweight parent reference) */
   upsertStory: t.procedure
     .input(
       z.object({
         id: z.number(),
         title: z.string(),
         azureUrl: z.string(),
-        state: z.string().optional(),
       })
     )
     .mutation(async ({ input }) => {
@@ -206,7 +182,6 @@ export const appRouter = t.router({
           id: input.id,
           title: input.title,
           azureUrl: input.azureUrl,
-          state: input.state ?? 'PROFILE_ASSIGNMENT',
         },
         update: {
           title: input.title,
@@ -215,14 +190,15 @@ export const appRouter = t.router({
       })
     }),
 
-  /** Upsert a task (used by Azure DevOps sync in cron job) */
+  /** Upsert a task */
   upsertTask: t.procedure
     .input(
       z.object({
         id: z.number(),
         title: z.string(),
-        storyId: z.number(),
+        storyId: z.number().nullish(),
         azureUrl: z.string(),
+        state: z.string().optional(),
       })
     )
     .mutation(async ({ input }) => {
@@ -232,8 +208,9 @@ export const appRouter = t.router({
         create: {
           id: input.id,
           title: input.title,
-          storyId: input.storyId,
+          storyId: input.storyId ?? undefined,
           azureUrl: input.azureUrl,
+          state: input.state ?? 'PROFILE_ASSIGNMENT',
         },
         update: {
           title: input.title,
@@ -246,10 +223,8 @@ export const appRouter = t.router({
     .input(
       z.object({
         syncEnabled: z.boolean().optional(),
-        planningEnabled: z.boolean().optional(),
         taskExecutionEnabled: z.boolean().optional(),
         prCheckEnabled: z.boolean().optional(),
-        storyPrCheckEnabled: z.boolean().optional(),
         lastRunAt: z.date().optional(),
       })
     )
@@ -261,12 +236,16 @@ export const appRouter = t.router({
       })
     }),
 
-  /** Open a path in VS Code */
+  /** Open a path in VS Code (optionally opening a workspace file) */
   openInVSCode: t.procedure
-    .input(z.object({ path: z.string() }))
+    .input(z.object({ path: z.string(), workspace: z.string().nullish() }))
     .mutation(async ({ input }) => {
+      // If a workspace file is specified, open it instead of the folder
+      const target = input.workspace
+        ? join(input.path, input.workspace)
+        : input.path
       return new Promise<{ success: boolean; error?: string }>((resolve) => {
-        exec(`code "${input.path}"`, { windowsHide: true }, (err) => {
+        exec(`code "${target}"`, { windowsHide: true }, (err) => {
           if (err) {
             console.error('[router] Failed to open VS Code:', err.message)
             resolve({ success: false, error: err.message })
@@ -293,12 +272,53 @@ export const appRouter = t.router({
       })
     }),
 
-  /** Open a URL in the default browser */
+  /** Open a URL in a new browser window (prevents stealing focus from the current virtual desktop) */
   openExternal: t.procedure
     .input(z.object({ url: z.string() }))
     .mutation(async ({ input }) => {
-      await shell.openExternal(input.url)
-      return { success: true }
+      return new Promise<{ success: boolean; error?: string }>((resolve) => {
+        exec(`start msedge --new-window "${input.url}"`, { windowsHide: true }, (err) => {
+          if (err) {
+            console.error('[router] Failed to open URL:', err.message)
+            resolve({ success: false, error: err.message })
+          } else {
+            resolve({ success: true })
+          }
+        })
+      })
+    }),
+
+  /** Create a new Windows 11 virtual desktop via PowerShell VirtualDesktop module */
+  createVirtualDesktop: t.procedure
+    .input(
+      z.object({
+        name: z.string().optional(),
+      }).optional()
+    )
+    .mutation(async ({ input }) => {
+      return new Promise<{ success: boolean; error?: string }>((resolve) => {
+        const name = input?.name
+        let ps1 = 'Import-Module VirtualDesktop; '
+        if (name) {
+          const safeName = name.replace(/'/g, "''")
+          ps1 += `New-Desktop | Set-DesktopName -Name '${safeName}' -PassThru | Switch-Desktop`
+        } else {
+          ps1 += 'New-Desktop | Switch-Desktop'
+        }
+
+        exec(
+          `powershell -NoProfile -ExecutionPolicy Bypass -Command "${ps1}"`,
+          { windowsHide: true },
+          (err) => {
+            if (err) {
+              console.error('[router] Failed to create virtual desktop:', err.message)
+              resolve({ success: false, error: err.message })
+            } else {
+              setTimeout(() => resolve({ success: true }), 1000)
+            }
+          }
+        )
+      })
     }),
 
   /** Open a copilot session in Windows Terminal */
@@ -311,25 +331,6 @@ export const appRouter = t.router({
     )
     .mutation(async ({ input }) => {
       return openSessionInTerminal(input.sessionId, input.cwd)
-    }),
-
-  /** Approve a plan — creates tasks, worktrees, and moves story to TASK_PR_REVIEW */
-  approvePlan: t.procedure
-    .input(z.object({ storyId: z.number() }))
-    .mutation(async ({ input }) => {
-      return approvePlan(input.storyId)
-    }),
-
-  /** Read a plan file from a story's worktree (for preview) */
-  readPlan: t.procedure
-    .input(z.object({ storyId: z.number() }))
-    .query(async ({ input }) => {
-      const db = getDb()
-      const story = await db.story.findUnique({ where: { id: input.storyId } })
-      if (!story?.worktreePath) return null
-
-      const plan = parsePlanFile(story.worktreePath)
-      return plan
     }),
 
   /** List all worktrees for a given profile */
@@ -394,20 +395,6 @@ export const appRouter = t.router({
 
   // ─── Error Management ────────────────────────────────
 
-  /** Clear error state on a story */
-  clearStoryError: t.procedure
-    .input(z.object({ storyId: z.number() }))
-    .mutation(async ({ input }) => {
-      const db = getDb()
-      return db.story.update({
-        where: { id: input.storyId },
-        data: {
-          errorMessage: null,
-          errorAt: null,
-        },
-      })
-    }),
-
   /** Clear error state on a task */
   clearTaskError: t.procedure
     .input(z.object({ taskId: z.number() }))
@@ -422,7 +409,7 @@ export const appRouter = t.router({
       })
     }),
 
-  // ─── Auto-Update ─────────────────────────────────────
+  // ─── Settings ────────────────────────────────────────
 
   /** Get app settings */
   getSettings: t.procedure.query(() => {
@@ -446,7 +433,7 @@ export const appRouter = t.router({
         azure: z.object({
           org: z.string(),
           project: z.string(),
-          pat: z.string(), // Full PAT — only sent when user changes it
+          pat: z.string(),
           team: z.string(),
         }).optional(),
         cron: z.object({
@@ -458,13 +445,17 @@ export const appRouter = t.router({
             repoPath: z.string(),
             defaultBranch: z.string(),
             description: z.string().optional(),
+            workspace: z.string().optional(),
           })
         ).optional(),
         notifications: z.object({
           enabled: z.boolean(),
-          planApprovalReady: z.boolean(),
           prReviewNeeded: z.boolean(),
+          taskCompleted: z.boolean(),
           cronErrors: z.boolean(),
+        }).optional(),
+        terminal: z.object({
+          shell: z.enum(['pwsh', 'powershell', 'cmd']),
         }).optional(),
       })
     )
@@ -476,6 +467,8 @@ export const appRouter = t.router({
       }
       return updateSettings(input)
     }),
+
+  // ─── Auto-Update ─────────────────────────────────────
 
   /** Get auto-update status */
   updateStatus: t.procedure.query(() => {

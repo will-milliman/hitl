@@ -15,135 +15,136 @@ async function seed() {
     data: { id: 1 },
   })
 
-  // Stories across all grid states
-  const stories = await Promise.all([
-    // Profile Assignment — awaiting profile selection
+  // Stories — lightweight parent references
+  await Promise.all([
     prisma.story.create({
       data: {
-        id: 12345,
+        id: 90001,
         title: 'Implement user authentication flow',
-        state: 'PROFILE_ASSIGNMENT',
-        azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/12345',
+        azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/90001',
       },
     }),
     prisma.story.create({
       data: {
-        id: 12346,
+        id: 90002,
         title: 'Add dashboard analytics widgets',
-        state: 'PROFILE_ASSIGNMENT',
-        azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/12346',
+        azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/90002',
       },
     }),
-
-    // Plan Approval — agent is planning (disabled)
     prisma.story.create({
       data: {
-        id: 12340,
-        title: 'Refactor API middleware layer',
-        state: 'PLAN_APPROVAL',
-        profileKey: 'web-app',
-        worktreePath: 'C:/repos/web-app-wt1',
-        sessionId: 'session-abc-123',
-        azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/12340',
-        disabled: true,
-      },
-    }),
-    // Plan Approval — awaiting human approval (enabled)
-    prisma.story.create({
-      data: {
-        id: 12341,
-        title: 'Update notification system',
-        state: 'PLAN_APPROVAL',
-        profileKey: 'backend-svc',
-        worktreePath: 'C:/repos/backend-svc-wt1',
-        sessionId: 'session-def-456',
-        azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/12341',
-        disabled: false,
-      },
-    }),
-
-    // Task PR Review — tasks being worked on
-    prisma.story.create({
-      data: {
-        id: 12330,
+        id: 90003,
         title: 'Migrate database schema v2',
-        state: 'TASK_PR_REVIEW',
-        profileKey: 'backend-svc',
-        worktreePath: 'C:/repos/backend-svc-wt2',
-        sessionId: 'session-ghi-789',
-        azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/12330',
-        disabled: false,
-      },
-    }),
-
-    // Story PR Review — story PR awaiting merge
-    prisma.story.create({
-      data: {
-        id: 12320,
-        title: 'Implement search indexing',
-        state: 'STORY_PR_REVIEW',
-        profileKey: 'web-app',
-        worktreePath: 'C:/repos/web-app-wt3',
-        sessionId: 'session-jkl-012',
-        prUrl: 'https://github.com/org/web-app/pull/42',
-        azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/12320',
-        disabled: false,
-      },
-    }),
-
-    // Completed
-    prisma.story.create({
-      data: {
-        id: 12310,
-        title: 'Add CSV export feature',
-        state: 'COMPLETED',
-        profileKey: 'web-app',
-        sessionId: 'session-mno-345',
-        prUrl: 'https://github.com/org/web-app/pull/38',
-        azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/12310',
-        disabled: true,
+        azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/90003',
       },
     }),
   ])
 
-  // Tasks for story 12330 (Task PR Review)
+  // Tasks across all grid states
   await Promise.all([
+    // Profile Assignment — awaiting profile selection
     prisma.task.create({
       data: {
-        id: 12331,
-        title: 'Create migration script for users table',
-        storyId: 12330,
-        worktreePath: 'C:/repos/backend-svc-wt3',
-        sessionId: 'session-task-001',
-        prUrl: 'https://github.com/org/backend-svc/pull/101',
-        prMerged: true,
-        azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/12331',
-        disabled: true,
+        id: 91001,
+        title: 'Create login page component',
+        storyId: 90001,
+        state: 'PROFILE_ASSIGNMENT',
+        azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/91001',
       },
     }),
     prisma.task.create({
       data: {
-        id: 12332,
-        title: 'Create migration script for orders table',
-        storyId: 12330,
-        worktreePath: 'C:/repos/backend-svc-wt4',
-        sessionId: 'session-task-002',
-        prUrl: 'https://github.com/org/backend-svc/pull/102',
-        prMerged: false,
-        azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/12332',
+        id: 91002,
+        title: 'Add OAuth2 provider integration',
+        storyId: 90001,
+        state: 'PROFILE_ASSIGNMENT',
+        azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/91002',
+      },
+    }),
+
+    // Task Execution — Copilot is working (disabled)
+    prisma.task.create({
+      data: {
+        id: 91003,
+        title: 'Build analytics chart component',
+        storyId: 90002,
+        state: 'TASK_EXECUTION',
+        profileKey: 'integrate',
+        worktreePath: 'C:/repos/web-app-wt1',
+        sessionId: 'session-abc-123',
+        azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/91003',
+        disabled: true,
+      },
+    }),
+    // Task Execution — session finished, ready for next step
+    prisma.task.create({
+      data: {
+        id: 91004,
+        title: 'Create data aggregation API endpoint',
+        storyId: 90002,
+        state: 'TASK_EXECUTION',
+        profileKey: 'integrate',
+        worktreePath: 'C:/repos/web-app-wt2',
+        sessionId: 'session-def-456',
+        azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/91004',
+        disabled: false,
+      },
+    }),
+
+    // PR Review — PR created, awaiting human review
+    prisma.task.create({
+      data: {
+        id: 91005,
+        title: 'Create migration script for users table',
+        storyId: 90003,
+        state: 'PR_REVIEW',
+        profileKey: 'integrate',
+        worktreePath: 'C:/repos/backend-svc-wt3',
+        sessionId: 'session-ghi-789',
+        prUrl: 'https://github.com/org/backend-svc/pull/101',
+        azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/91005',
         disabled: false,
       },
     }),
     prisma.task.create({
       data: {
-        id: 12333,
+        id: 91006,
+        title: 'Create migration script for orders table',
+        storyId: 90003,
+        state: 'PR_REVIEW',
+        profileKey: 'integrate',
+        worktreePath: 'C:/repos/backend-svc-wt4',
+        sessionId: 'session-jkl-012',
+        prUrl: 'https://github.com/org/backend-svc/pull/102',
+        azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/91006',
+        disabled: false,
+      },
+    }),
+
+    // Completed — PR merged
+    prisma.task.create({
+      data: {
+        id: 91007,
         title: 'Update ORM models for new schema',
-        storyId: 12330,
-        worktreePath: 'C:/repos/backend-svc-wt5',
-        sessionId: 'session-task-003',
-        prMerged: false,
-        azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/12333',
+        storyId: 90003,
+        state: 'COMPLETED',
+        profileKey: 'integrate',
+        prUrl: 'https://github.com/org/backend-svc/pull/100',
+        prMerged: true,
+        azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/91007',
         disabled: true,
+        completedAt: new Date(),
+      },
+    }),
+
+    // Blocked
+    prisma.task.create({
+      data: {
+        id: 91008,
+        title: 'Implement SSO callback handler',
+        storyId: 90001,
+        state: 'BLOCKED',
+        azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/91008',
       },
     }),
   ])

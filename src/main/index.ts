@@ -12,7 +12,7 @@ import { appRouter } from './trpc/router'
 import { initDatabase, closeDatabase } from './db'
 import { startCron, stopCron } from './cron'
 import { clearConfigCache } from './cron/config'
-import { unwatchAll } from './copilot'
+import { unwatchAll, ensureGlobalHooks } from './copilot'
 import { initLogger, createLogger } from './logger'
 import { initAutoUpdater } from './updater'
 
@@ -57,6 +57,10 @@ async function createWindow(): Promise<void> {
 
   // Clear any cached config so it re-reads env vars (in case loaded before dotenv ran)
   clearConfigCache()
+
+  // Set up global Copilot CLI hooks in ~/.copilot/config.json
+  ensureGlobalHooks()
+
   startCron()
 
   // Auto-updater only in packaged builds

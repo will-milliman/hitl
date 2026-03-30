@@ -7,34 +7,22 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/// A story work item from Azure DevOps
+/// A story (user story) from Azure DevOps — lightweight parent reference for context
 model Story {
-  id           Int       @id                    // Azure DevOps work item ID
-  title        String
-  state        String    @default("PROFILE_ASSIGNMENT") // GridState enum value
-  profileKey   String?                          // Key from profile.json
-  worktreePath String?                          // Absolute path to git worktree
-  sessionId    String?                          // Copilot CLI session ID
-  prUrl        String?                          // GitHub pull request URL
-  azureUrl     String                           // Azure DevOps work item URL
-  disabled     Boolean   @default(false)        // Whether item is disabled in the grid
-  prUpdated    Boolean   @default(false)        // Flag: GitHub webhook indicated PR update
-  completedAt  DateTime?                        // When the story was moved to COMPLETED
-  errorMessage String?                          // Last error message (null = no error)
-  errorAt      DateTime?                        // When the last error occurred
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id       Int    @id    // Azure DevOps work item ID
+  title    String
+  azureUrl String        // Azure DevOps work item URL
 
   tasks Task[]
-
-  @@index([state])
 }
 
-/// A task work item associated with a story
+/// A task work item — the primary pipeline entity
 model Task {
   id           Int       @id                    // Azure DevOps work item ID
   title        String
-  storyId      Int                              // Parent story work item ID
+  storyId      Int?                             // Parent story work item ID (optional)
+  state        String    @default("PROFILE_ASSIGNMENT") // GridState enum value
+  profileKey   String?                          // Key from profile.json
   worktreePath String?                          // Absolute path to git worktree
   sessionId    String?                          // Copilot CLI session ID
   prUrl        String?                          // GitHub pull request URL
@@ -42,13 +30,15 @@ model Task {
   azureUrl     String                           // Azure DevOps work item URL
   disabled     Boolean   @default(false)        // Whether item is disabled in the grid
   prUpdated    Boolean   @default(false)        // Flag: GitHub webhook indicated PR update
+  completedAt  DateTime?                        // When the task was moved to COMPLETED
   errorMessage String?                          // Last error message (null = no error)
   errorAt      DateTime?                        // When the last error occurred
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  story Story @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  story Story? @relation(fields: [storyId], references: [id], onDelete: SetNull)
 
+  @@index([state])
   @@index([storyId])
 }
 
@@ -56,9 +46,7 @@ model Task {
 model CronState {
   id                    Int     @id @default(1) // Singleton row
   syncEnabled           Boolean @default(true)  // Can the Azure sync step run?
-  planningEnabled       Boolean @default(true)  // Can the planning step run?
   taskExecutionEnabled  Boolean @default(true)  // Can the task execution step run?
   prCheckEnabled        Boolean @default(true)  // Can the PR check step run?
-  storyPrCheckEnabled   Boolean @default(true)  // Can the story PR check step run?
   lastRunAt             DateTime?               // Last time the cron job ran
 }

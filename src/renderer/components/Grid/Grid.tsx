@@ -90,7 +90,6 @@ const Th = styled.th`
 
 const Tr = styled.tr<{ $disabled?: boolean }>`
   opacity: ${({ $disabled }) => ($disabled ? 0.45 : 1)};
-  pointer-events: ${({ $disabled }) => ($disabled ? 'none' : 'auto')};
 
   &:hover {
     background: ${({ theme }) => theme.colors.surface0};

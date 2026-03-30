@@ -1,58 +1,78 @@
 /**
- * Copilot CLI hooks setup.
+ * Copilot CLI hooks setup — global config approach.
  *
- * Configures `.github/hooks/hooks.json` in worktree directories
- * so that Copilot CLI fires hook scripts on key events.
+ * Instead of writing `.github/hooks/hooks.json` inside each worktree,
+ * hooks are defined inline in the global Copilot config at
+ * `~/.copilot/config.json`. This keeps hook config entirely out of repos.
+ *
+ * Hook scripts are stored in `<tmpdir>/.hitl-data/hook-scripts/` and
+ * dynamically resolve the signal directory from the session's `cwd`
+ * (passed via stdin JSON from Copilot CLI).
  *
  * Hook events we care about:
  * - sessionEnd: Session completed or was terminated
  * - postToolUse: After a tool runs (used to detect idle → active transitions)
  *
- * Hook scripts write JSON signal files to `.hitl-signals/` that the
- * session watcher monitors via fs.watch.
+ * Copilot CLI hooks schema (in config.json):
+ * {
+ *   ...existing config...,
+ *   "hooks": {
+ *     "sessionEnd": [{ "type": "command", "powershell": "..." }],
+ *     "postToolUse": [{ "type": "command", "powershell": "..." }]
+ *   }
+ * }
  */
 
-import { join, resolve } from 'path'
-import { mkdirSync, writeFileSync, existsSync, chmodSync } from 'fs'
+import { join } from 'path'
+import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'fs'
+import { tmpdir, homedir } from 'os'
 import { SIGNAL_FILES } from './session'
 
-/** The hooks.json structure expected by Copilot CLI */
-interface HooksConfig {
-  hooks: HookEntry[]
+/** Base directory for HITL data outside worktrees */
+const HITL_DATA_BASE = join(tmpdir(), '.hitl-data')
+
+/** Directory for global hook scripts (shared across all worktrees) */
+const HOOK_SCRIPTS_DIR = join(HITL_DATA_BASE, 'hook-scripts')
+
+/** Path to the global Copilot CLI config */
+const COPILOT_CONFIG_PATH = join(homedir(), '.copilot', 'config.json')
+
+/** Hook command entry — uses the `powershell` field for Windows */
+interface HookCommandEntry {
+  type: 'command'
+  powershell: string
 }
 
-interface HookEntry {
-  type: string
-  command: string
+/** Subset of Copilot config.json that we manage */
+interface CopilotConfig {
+  [key: string]: unknown
+  hooks?: {
+    sessionEnd?: HookCommandEntry[]
+    postToolUse?: HookCommandEntry[]
+    [key: string]: unknown
+  }
 }
+
+/** Whether global hooks have been set up this session */
+let globalHooksReady = false
 
 /**
- * Gets the path to the hooks directory for a worktree.
- */
-function getHooksDir(worktreePath: string): string {
-  return join(worktreePath, '.github', 'hooks')
-}
-
-/**
- * Gets the path to the signal directory for a worktree.
- */
-function getSignalDir(worktreePath: string): string {
-  return join(worktreePath, '.hitl-signals')
-}
-
-/**
- * Creates the PowerShell hook script that writes signal files.
+ * Creates a PowerShell hook script that dynamically resolves the signal
+ * directory from the session's cwd.
  *
- * The script reads JSON from stdin, extracts event info,
- * and writes a signal file that HITL can watch.
+ * The script:
+ * 1. Reads JSON from stdin (piped by Copilot CLI)
+ * 2. Extracts the `cwd` field to identify the worktree
+ * 3. Computes the signal dir: <tmpdir>/.hitl-data/<basename(cwd)>/signals/
+ * 4. Writes a signal file with event data
  */
-function createHookScript(worktreePath: string, signalName: string): string {
-  const signalDir = getSignalDir(worktreePath).replace(/\\/g, '\\\\')
+function createGlobalHookScript(signalName: string): string {
+  const hitlDataBase = HITL_DATA_BASE.replace(/\\/g, '\\\\')
 
-  // PowerShell script that reads stdin JSON and writes a signal file
-  return `#!/usr/bin/env pwsh
-# HITL Hook Script — writes signal files for session state tracking
+  return `# HITL Global Hook Script — writes signal files for session state tracking
 # Signal: ${signalName}
+# This script is invoked by Copilot CLI for ALL sessions.
+# It dynamically resolves the signal directory from the session's cwd.
 
 $input_data = [Console]::In.ReadToEnd()
 $timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
@@ -63,109 +83,125 @@ $signal = @{
   data = $null
 }
 
+$cwd = $null
+
 try {
   $parsed = $input_data | ConvertFrom-Json
   $signal.data = $parsed
+  $cwd = $parsed.cwd
 } catch {
-  # stdin wasn't valid JSON, that's OK
+  # stdin wasn't valid JSON — cannot determine worktree, exit
+  exit 0
+}
+
+if (-not $cwd) {
+  # No cwd in event data — cannot determine signal directory
+  exit 0
+}
+
+# Resolve signal directory: <tmpdir>/.hitl-data/<worktree-folder-name>/signals/
+$worktreeName = Split-Path $cwd -Leaf
+$signalDir = Join-Path "${hitlDataBase}" "$worktreeName" "signals"
+
+if (-not (Test-Path $signalDir)) {
+  # Signal dir doesn't exist — this is not a HITL-managed worktree, skip
+  exit 0
 }
 
 $signalJson = $signal | ConvertTo-Json -Depth 10 -Compress
-
-$signalDir = "${signalDir}"
-if (-not (Test-Path $signalDir)) {
-  New-Item -ItemType Directory -Path $signalDir -Force | Out-Null
-}
-
 $signalFile = Join-Path $signalDir "${signalName}.json"
 $signalJson | Out-File -FilePath $signalFile -Encoding utf8 -Force
 `
 }
 
 /**
- * Sets up Copilot CLI hooks in a worktree directory.
+ * Sets up global Copilot CLI hooks in `~/.copilot/config.json`.
  *
- * Creates:
- * - .github/hooks/hooks.json — hook configuration
- * - .github/hooks/hitl-session-end.ps1 — sessionEnd hook script
- * - .github/hooks/hitl-post-tool.ps1 — postToolUse hook script
- * - .hitl-signals/ — directory for signal files
+ * This is called once per app session (idempotent). It:
+ * 1. Writes hook scripts to `<tmpdir>/.hitl-data/hook-scripts/`
+ * 2. Reads the existing `~/.copilot/config.json`
+ * 3. Merges the HITL hooks into the `hooks` key
+ * 4. Writes the updated config back
  *
- * @param worktreePath Absolute path to the worktree
+ * Since Copilot merges hooks from all sources additively, our hooks
+ * coexist with any user-defined hooks.
  */
-export function setupHooks(worktreePath: string): void {
-  const hooksDir = getHooksDir(worktreePath)
-  const signalDir = getSignalDir(worktreePath)
+export function setupGlobalHooks(): void {
+  // Ensure hook scripts directory exists
+  mkdirSync(HOOK_SCRIPTS_DIR, { recursive: true })
 
-  // Ensure directories exist
-  mkdirSync(hooksDir, { recursive: true })
-  mkdirSync(signalDir, { recursive: true })
+  // Write the global hook scripts
+  const sessionEndScript = createGlobalHookScript(SIGNAL_FILES.SESSION_END)
+  const postToolScript = createGlobalHookScript(SIGNAL_FILES.SESSION_ACTIVE)
 
-  // Create hook scripts
-  const sessionEndScript = createHookScript(worktreePath, SIGNAL_FILES.SESSION_END)
-  const postToolScript = createHookScript(worktreePath, SIGNAL_FILES.SESSION_ACTIVE)
-
-  const sessionEndPath = join(hooksDir, 'hitl-session-end.ps1')
-  const postToolPath = join(hooksDir, 'hitl-post-tool.ps1')
+  const sessionEndPath = join(HOOK_SCRIPTS_DIR, 'hitl-session-end.ps1')
+  const postToolPath = join(HOOK_SCRIPTS_DIR, 'hitl-post-tool.ps1')
 
   writeFileSync(sessionEndPath, sessionEndScript, 'utf-8')
   writeFileSync(postToolPath, postToolScript, 'utf-8')
 
-  // Create hooks.json
-  const hooksConfig: HooksConfig = {
-    hooks: [
-      {
-        type: 'sessionEnd',
-        command: `pwsh -File "${sessionEndPath.replace(/\\/g, '/')}"`,
-      },
-      {
-        type: 'postToolUse',
-        command: `pwsh -File "${postToolPath.replace(/\\/g, '/')}"`,
-      },
-    ],
-  }
-
-  const hooksJsonPath = join(hooksDir, 'hooks.json')
-  writeFileSync(hooksJsonPath, JSON.stringify(hooksConfig, null, 2), 'utf-8')
-
-  console.log(`[hooks] Set up hooks in ${hooksDir}`)
-}
-
-/**
- * Checks if hooks are already set up in a worktree.
- */
-export function hasHooks(worktreePath: string): boolean {
-  const hooksJsonPath = join(getHooksDir(worktreePath), 'hooks.json')
-  return existsSync(hooksJsonPath)
-}
-
-/**
- * Adds hook-generated files to .gitignore if not already there.
- *
- * We don't want to commit signal files or HITL logs.
- */
-export function ensureGitignore(worktreePath: string): void {
-  const gitignorePath = join(worktreePath, '.gitignore')
-  const entriesToAdd = ['.hitl-signals/', '.hitl-logs/', '.github/hooks/hitl-*.ps1']
-
-  let content = ''
-  if (existsSync(gitignorePath)) {
-    const { readFileSync } = require('fs')
-    content = readFileSync(gitignorePath, 'utf-8')
-  }
-
-  const lines = content.split('\n')
-  let modified = false
-
-  for (const entry of entriesToAdd) {
-    if (!lines.some((l: string) => l.trim() === entry)) {
-      lines.push(entry)
-      modified = true
+  // Read existing config
+  let config: CopilotConfig = {}
+  if (existsSync(COPILOT_CONFIG_PATH)) {
+    try {
+      const raw = readFileSync(COPILOT_CONFIG_PATH, 'utf-8')
+      config = JSON.parse(raw) as CopilotConfig
+    } catch {
+      console.error('[hooks] Failed to parse existing copilot config, will overwrite hooks section')
     }
   }
 
-  if (modified) {
-    writeFileSync(gitignorePath, lines.join('\n'), 'utf-8')
-    console.log(`[hooks] Updated .gitignore in ${worktreePath}`)
+  // Build our hook entries
+  const hitlSessionEnd: HookCommandEntry = {
+    type: 'command',
+    powershell: `& '${sessionEndPath.replace(/'/g, "''")}'`,
   }
+
+  const hitlPostTool: HookCommandEntry = {
+    type: 'command',
+    powershell: `& '${postToolPath.replace(/'/g, "''")}'`,
+  }
+
+  // Merge hooks: preserve any non-HITL hooks, replace HITL hooks.
+  // We identify HITL hooks by checking if the powershell command references
+  // our hook scripts directory.
+  const existingHooks = config.hooks ?? {}
+  const isHitlHook = (entry: HookCommandEntry): boolean =>
+    entry.powershell?.includes('hitl-session-end.ps1') ||
+    entry.powershell?.includes('hitl-post-tool.ps1')
+
+  // Filter out old HITL hooks from existing entries
+  const existingSessionEnd = (existingHooks.sessionEnd ?? []).filter(
+    (e) => !isHitlHook(e as HookCommandEntry)
+  ) as HookCommandEntry[]
+  const existingPostTool = (existingHooks.postToolUse ?? []).filter(
+    (e) => !isHitlHook(e as HookCommandEntry)
+  ) as HookCommandEntry[]
+
+  // Preserve any other hook events the user may have defined
+  const { sessionEnd: _se, postToolUse: _pt, ...otherHookEvents } = existingHooks
+
+  config.hooks = {
+    ...otherHookEvents,
+    sessionEnd: [...existingSessionEnd, hitlSessionEnd],
+    postToolUse: [...existingPostTool, hitlPostTool],
+  }
+
+  // Write the updated config
+  writeFileSync(COPILOT_CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8')
+
+  globalHooksReady = true
+  console.log(`[hooks] Global hooks configured in ${COPILOT_CONFIG_PATH}`)
+  console.log(`[hooks] Hook scripts in ${HOOK_SCRIPTS_DIR}`)
+}
+
+/**
+ * Ensures global hooks are set up. Idempotent — only runs once per session.
+ *
+ * Call this before spawning any copilot session. It replaces the old
+ * per-worktree `hasHooks()`/`setupHooks()`/`ensureGitignore()` pattern.
+ */
+export function ensureGlobalHooks(): void {
+  if (globalHooksReady) return
+  setupGlobalHooks()
 }

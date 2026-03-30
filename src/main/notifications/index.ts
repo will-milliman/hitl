@@ -2,11 +2,9 @@
  * Notification module — sends OS-level notifications at key lifecycle events.
  *
  * Events that trigger notifications:
- * - Plan approval ready (story moved to PLAN_APPROVAL with session finished)
- * - PR review needed (story or task PR has review comments)
+ * - PR review needed (task PR has review comments)
+ * - Task completed (task PR merged)
  * - Cron step errors
- * - All tasks merged (story ready for story PR)
- * - Story PR merged (story completed)
  *
  * Notifications respect user preferences stored in settings.
  */
@@ -18,7 +16,7 @@ import { loadSettings } from '../settings'
 const logger = createLogger('notify')
 
 /** Notification types that map to user preferences */
-type NotificationType = 'planApprovalReady' | 'prReviewNeeded' | 'cronErrors'
+type NotificationType = 'prReviewNeeded' | 'taskCompleted' | 'cronErrors'
 
 /**
  * Checks if a notification type is enabled in settings.
@@ -70,51 +68,29 @@ function show(title: string, body: string, type: NotificationType): void {
 // ─── Public API ────────────────────────────────────────
 
 /**
- * Notify that a plan is ready for approval.
- */
-export function notifyPlanReady(storyId: number, storyTitle: string): void {
-  show(
-    'Plan Ready for Approval',
-    `Story #${storyId}: ${storyTitle}`,
-    'planApprovalReady'
-  )
-}
-
-/**
  * Notify that a PR has review comments needing attention.
  */
 export function notifyPrReviewNeeded(
-  itemType: 'story' | 'task',
+  itemType: 'task',
   itemId: number,
   itemTitle: string,
   commentCount: number
 ): void {
   show(
-    `PR Review Comments (${itemType} #${itemId})`,
+    `PR Review Comments (Task #${itemId})`,
     `${commentCount} unresolved comment(s) on "${itemTitle}"`,
     'prReviewNeeded'
   )
 }
 
 /**
- * Notify that all tasks are merged for a story.
+ * Notify that a task PR has been merged (completed).
  */
-export function notifyAllTasksMerged(storyId: number, storyTitle: string): void {
+export function notifyTaskCompleted(taskId: number, taskTitle: string): void {
   show(
-    'All Tasks Merged',
-    `Story #${storyId}: ${storyTitle} — ready for story PR`,
-    'planApprovalReady'
-  )
-}
-
-/**
- * Notify that a story PR has been merged (completed).
- */
-export function notifyStoryCompleted(storyId: number, storyTitle: string): void {
-  show(
-    'Story Completed',
-    `Story #${storyId}: ${storyTitle}`,
-    'planApprovalReady'
+    'Task Completed',
+    `Task #${taskId}: ${taskTitle}`,
+    'taskCompleted'
   )
 }
 

@@ -8,13 +8,12 @@ import { GlobalStyles } from './styles/global'
 import { Layout } from './components/Layout'
 import { ErrorBoundary, Spinner } from './components/common'
 import { ProfileAssignmentGrid } from './grids/ProfileAssignmentGrid'
-import { PlanApprovalGrid } from './grids/PlanApprovalGrid'
-import { TaskPRReviewGrid } from './grids/TaskPRReviewGrid'
-import { StoryPRReviewGrid } from './grids/StoryPRReviewGrid'
+import { TaskExecutionGrid } from './grids/TaskExecutionGrid'
+import { ReviewGrid } from './grids/ReviewGrid'
 import { CompletedGrid } from './grids/CompletedGrid'
 import { BlockedGrid } from './grids/BlockedGrid'
 import { GridState } from '../shared/constants'
-import type { Story } from '../shared/types'
+import type { Task, ProfileMap } from '../shared/types'
 
 export function App() {
   const [queryClient] = useState(() => new QueryClient())
@@ -54,84 +53,69 @@ function AppShell() {
 function AppContent() {
   const utils = trpc.useContext()
 
-  const storiesQuery = trpc.stories.useQuery(undefined, {
-    refetchInterval: 30_000, // Refresh stories every 30s to pick up sync changes
-  })
   const tasksQuery = trpc.tasks.useQuery(undefined, {
-    refetchInterval: 30_000,
+    refetchInterval: 30_000, // Refresh tasks every 30s to pick up sync changes
   })
   const profilesQuery = trpc.profiles.useQuery()
 
-  const assignProfileMutation = trpc.assignProfile.useMutation({
+  const assignTaskProfileMutation = trpc.assignTaskProfile.useMutation({
     onSuccess: () => {
-      // Invalidate stories query to refetch from DB
-      utils.stories.invalidate()
+      utils.tasks.invalidate()
     },
   })
 
-  const stories = storiesQuery.data ?? []
   const tasks = tasksQuery.data ?? []
+  const profiles = profilesQuery.data ?? {} as ProfileMap
   const profileKeys = useMemo(
-    () => Object.keys(profilesQuery.data ?? {}),
-    [profilesQuery.data]
+    () => Object.keys(profiles),
+    [profiles]
   )
 
-  const storiesByState = useMemo(() => {
-    const grouped: Record<string, Story[]> = {
+  const tasksByState = useMemo(() => {
+    const grouped: Record<string, Task[]> = {
       [GridState.PROFILE_ASSIGNMENT]: [],
-      [GridState.PLAN_APPROVAL]: [],
-      [GridState.TASK_PR_REVIEW]: [],
-      [GridState.STORY_PR_REVIEW]: [],
+      [GridState.TASK_EXECUTION]: [],
+      [GridState.PR_REVIEW]: [],
       [GridState.COMPLETED]: [],
       [GridState.BLOCKED]: [],
     }
-    for (const story of stories) {
-      if (grouped[story.state]) {
-        grouped[story.state].push(story)
+    for (const task of tasks) {
+      if (grouped[task.state]) {
+        grouped[task.state].push(task)
       }
     }
     return grouped
-  }, [stories])
+  }, [tasks])
 
-  const handleAssignProfile = (storyId: number, profileKey: string) => {
-    assignProfileMutation.mutate({ storyId, profileKey })
+  const handleAssignProfile = (taskId: number, profileKey: string) => {
+    assignTaskProfileMutation.mutate({ taskId, profileKey })
   }
 
-  // Filter tasks for completed stories
-  const completedStoryIds = useMemo(
-    () => new Set(storiesByState[GridState.COMPLETED].map((s) => s.id)),
-    [storiesByState]
-  )
-  const completedTasks = useMemo(
-    () => tasks.filter((t) => completedStoryIds.has(t.storyId)),
-    [tasks, completedStoryIds]
-  )
-
   // Show loading spinner on initial load (after all hooks)
-  if (storiesQuery.isLoading || tasksQuery.isLoading) {
+  if (tasksQuery.isLoading) {
     return <Spinner label="Loading work items..." />
   }
 
   return (
     <>
       <ProfileAssignmentGrid
-        stories={storiesByState[GridState.PROFILE_ASSIGNMENT]}
+        tasks={tasksByState[GridState.PROFILE_ASSIGNMENT]}
         profiles={profileKeys}
         onAssignProfile={handleAssignProfile}
       />
-      <PlanApprovalGrid
-        stories={storiesByState[GridState.PLAN_APPROVAL]}
+      <TaskExecutionGrid
+        tasks={tasksByState[GridState.TASK_EXECUTION]}
+        profiles={profiles}
       />
-      <TaskPRReviewGrid tasks={tasks} />
-      <StoryPRReviewGrid
-        stories={storiesByState[GridState.STORY_PR_REVIEW]}
+      <ReviewGrid
+        tasks={tasksByState[GridState.PR_REVIEW]}
+        profiles={profiles}
       />
       <CompletedGrid
-        stories={storiesByState[GridState.COMPLETED]}
-        tasks={completedTasks}
+        tasks={tasksByState[GridState.COMPLETED]}
       />
       <BlockedGrid
-        stories={storiesByState[GridState.BLOCKED]}
+        tasks={tasksByState[GridState.BLOCKED]}
       />
     </>
   )

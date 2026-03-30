@@ -3,20 +3,16 @@
  *
  * Runs on each cron tick (gated by `prCheckEnabled` flag). Handles:
  *
- * 1. **PR Creation**: For tasks in TASK_PR_REVIEW that are idle (disabled=false)
+ * 1. **PR Creation**: For tasks in PR_REVIEW that are idle (disabled=false)
  *    and have no PR yet, pushes the task branch and creates a PR targeting
- *    the story branch.
+ *    the profile's default branch.
  *
- * 2. **PR Comment Monitoring**: For tasks with a PR and prUpdated=true (or
- *    on every tick as a fallback), fetches unresolved review comments. If
- *    comments are found and the task session is idle, resumes the copilot
- *    session with the comment context.
+ * 2. **PR Comment Monitoring**: For tasks with a PR and prUpdated=true,
+ *    fetches unresolved review comments. If comments are found and the
+ *    task session is idle, resumes the copilot session with comment context.
  *
  * 3. **PR Merge Detection**: For tasks with a PR, checks if the PR has been
- *    merged. If merged, sets prMerged=true and disabled=true.
- *
- * 4. **All Tasks Merged Check**: If all tasks for a story are merged, moves
- *    the story to STORY_PR_REVIEW state.
+ *    merged. If merged, moves the task to COMPLETED state.
  *
  * All GitHub operations use the `gh` CLI (authenticated via `gh auth login`).
  */
@@ -26,7 +22,6 @@ import { promisify } from 'util'
 import { getDb } from '../db'
 import {
   isGhAuthenticated,
-  getRepoInfo,
   createPullRequest,
   findPullRequest,
   getPullRequestByUrl,
@@ -38,22 +33,37 @@ import {
 } from '../github'
 import {
   spawnSession,
-  setupHooks,
-  hasHooks,
-  ensureGitignore,
+  ensureGlobalHooks,
   watchSignals,
   isWatching,
 } from '../copilot'
 import { getBranchName } from '../worktree'
-import { notifyAllTasksMerged, notifyPrReviewNeeded } from '../notifications'
+import { loadProfiles } from '../settings'
+import { notifyPrReviewNeeded, notifyTaskCompleted } from '../notifications'
+import { GridState } from '../../shared/constants'
+import { createLogger } from '../logger'
 
+const logger = createLogger('pr-check')
 const execFileAsync = promisify(execFile)
+
+/**
+ * Gets the default branch for a task's profile.
+ */
+function getDefaultBranch(profileKey: string | null): string {
+  if (!profileKey) return 'main'
+  try {
+    const profiles = loadProfiles()
+    return profiles[profileKey]?.defaultBranch ?? 'main'
+  } catch {
+    return 'main'
+  }
+}
 
 /**
  * Pushes a branch to origin from a worktree.
  */
 async function pushBranch(worktreePath: string, branchName: string): Promise<void> {
-  console.log(`[pr-check] Pushing ${branchName} from ${worktreePath}`)
+  logger.info(`Pushing ${branchName} from ${worktreePath}`)
   await execFileAsync('git', ['push', '-u', 'origin', branchName], {
     cwd: worktreePath,
     timeout: 60_000,
@@ -88,7 +98,7 @@ Focus on addressing ALL the review comments.`
  * Step 1: Create PRs for tasks that have completed work but no PR yet.
  *
  * Finds tasks where:
- * - Story is in TASK_PR_REVIEW state
+ * - Task is in PR_REVIEW state
  * - Task has a worktree and session (agent has worked)
  * - Task is not disabled (agent is idle / done)
  * - Task has no prUrl yet
@@ -99,94 +109,12 @@ async function createTaskPRs(): Promise<void> {
 
   const tasks = await db.task.findMany({
     where: {
+      state: GridState.PR_REVIEW,
       prUrl: null,
       prMerged: false,
       disabled: false,
       sessionId: { not: null },
       worktreePath: { not: null },
-    },
-    include: {
-      story: {
-        select: { id: true, title: true, state: true, worktreePath: true, profileKey: true },
-      },
-    },
-  })
-
-  const eligible = tasks.filter((t) => t.story.state === 'TASK_PR_REVIEW')
-  if (eligible.length === 0) return
-
-  console.log(`[pr-check] Found ${eligible.length} tasks needing PRs`)
-
-  for (const task of eligible) {
-    try {
-      const worktreePath = task.worktreePath!
-      const taskBranch = getBranchName('task', task.id)
-      const storyBranch = getBranchName('story', task.story.id)
-
-      // Push the task branch
-      await pushBranch(worktreePath, taskBranch)
-
-      // Check if a PR already exists (maybe created manually)
-      const existing = await findPullRequest(worktreePath, taskBranch, storyBranch)
-
-      let prUrl: string
-      if (existing) {
-        console.log(`[pr-check] PR already exists for task #${task.id}: ${existing.url}`)
-        prUrl = existing.url
-      } else {
-        // Create the PR
-        const pr = await createPullRequest(worktreePath, {
-          title: `Task #${task.id}: ${task.title}`,
-          body: [
-            `## Task #${task.id}`,
-            '',
-            `**Story**: #${task.story.id} — ${task.story.title}`,
-            '',
-            `**Task**: ${task.title}`,
-            '',
-            `This PR implements the changes for Task #${task.id}.`,
-            '',
-            `---`,
-            `*Created by HITL Orchestrator*`,
-          ].join('\n'),
-          head: taskBranch,
-          base: storyBranch,
-        })
-
-        prUrl = pr.url
-        console.log(`[pr-check] Created PR for task #${task.id}: ${prUrl}`)
-      }
-
-      // Save PR URL to database
-      await db.task.update({
-        where: { id: task.id },
-        data: { prUrl },
-      })
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      console.error(`[pr-check] Failed to create PR for task #${task.id}: ${message}`)
-    }
-  }
-}
-
-/**
- * Step 2: Check for unresolved review comments on task PRs.
- *
- * For tasks with a PR that has prUpdated=true (or periodically),
- * fetches review comments. If there are unresolved comments and
- * the task session is idle, spawns/resumes a copilot session to
- * address them.
- */
-async function checkTaskPRComments(): Promise<void> {
-  const db = getDb()
-
-  // Find tasks with PRs that need comment checking
-  const tasks = await db.task.findMany({
-    where: {
-      prUrl: { not: null },
-      prMerged: false,
-      disabled: false, // Only check when agent is idle (human can review)
-      prUpdated: true, // Only check when flagged as updated
     },
     include: {
       story: {
@@ -197,7 +125,85 @@ async function checkTaskPRComments(): Promise<void> {
 
   if (tasks.length === 0) return
 
-  console.log(`[pr-check] Checking comments on ${tasks.length} task PRs`)
+  logger.info(`Found ${tasks.length} tasks needing PRs`)
+
+  for (const task of tasks) {
+    try {
+      const worktreePath = task.worktreePath!
+      const taskBranch = getBranchName('task', task.id)
+      const defaultBranch = getDefaultBranch(task.profileKey)
+
+      // Push the task branch
+      await pushBranch(worktreePath, taskBranch)
+
+      // Check if a PR already exists (maybe created manually)
+      const existing = await findPullRequest(worktreePath, taskBranch, defaultBranch)
+
+      let prUrl: string
+      if (existing) {
+        logger.info(`PR already exists for task #${task.id}: ${existing.url}`)
+        prUrl = existing.url
+      } else {
+        // Create the PR targeting the default branch
+        const storyContext = task.story
+          ? `\n**Story**: #${task.story.id} — ${task.story.title}\n`
+          : ''
+
+        const pr = await createPullRequest(worktreePath, {
+          title: `Task #${task.id}: ${task.title}`,
+          body: [
+            `## Task #${task.id}`,
+            '',
+            `**Task**: ${task.title}`,
+            storyContext,
+            `This PR implements the changes for Task #${task.id}.`,
+            '',
+            `---`,
+            `*Created by HITL Orchestrator*`,
+          ].join('\n'),
+          head: taskBranch,
+          base: defaultBranch,
+        })
+
+        prUrl = pr.url
+        logger.info(`Created PR for task #${task.id}: ${prUrl}`)
+      }
+
+      // Save PR URL to database
+      await db.task.update({
+        where: { id: task.id },
+        data: { prUrl },
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.error(`Failed to create PR for task #${task.id}: ${message}`)
+    }
+  }
+}
+
+/**
+ * Step 2: Check for unresolved review comments on task PRs.
+ *
+ * For tasks with a PR that has prUpdated=true,
+ * fetches review comments. If there are unresolved comments and
+ * the task session is idle, spawns a copilot session to address them.
+ */
+async function checkTaskPRComments(): Promise<void> {
+  const db = getDb()
+
+  const tasks = await db.task.findMany({
+    where: {
+      state: GridState.PR_REVIEW,
+      prUrl: { not: null },
+      prMerged: false,
+      disabled: false, // Only check when agent is idle
+      prUpdated: true, // Only check when flagged as updated
+    },
+  })
+
+  if (tasks.length === 0) return
+
+  logger.info(`Checking comments on ${tasks.length} task PRs`)
 
   for (const task of tasks) {
     try {
@@ -207,7 +213,7 @@ async function checkTaskPRComments(): Promise<void> {
       const prNumber = extractPrNumber(prUrl)
 
       if (!repoInfo || !prNumber) {
-        console.warn(`[pr-check] Cannot parse PR URL: ${prUrl}`)
+        logger.warn(`Cannot parse PR URL: ${prUrl}`)
         continue
       }
 
@@ -235,12 +241,12 @@ async function checkTaskPRComments(): Promise<void> {
       })
 
       if (unresolved.length === 0) {
-        console.log(`[pr-check] No unresolved comments on task #${task.id} PR`)
+        logger.info(`No unresolved comments on task #${task.id} PR`)
         continue
       }
 
-      console.log(
-        `[pr-check] Found ${unresolved.length} unresolved comments on task #${task.id}`
+      logger.info(
+        `Found ${unresolved.length} unresolved comments on task #${task.id}`
       )
 
       notifyPrReviewNeeded('task', task.id, task.title, unresolved.length)
@@ -249,11 +255,8 @@ async function checkTaskPRComments(): Promise<void> {
       const commentText = formatCommentsForPrompt(unresolved)
       const prompt = buildCommentPrompt(task.id, task.title, commentText)
 
-      // Set up hooks if needed
-      if (!hasHooks(worktreePath)) {
-        setupHooks(worktreePath)
-        ensureGitignore(worktreePath)
-      }
+      // Ensure global hooks are configured
+      ensureGlobalHooks()
 
       // Spawn a new copilot session to address comments
       const { sessionId } = await spawnSession({
@@ -275,13 +278,13 @@ async function checkTaskPRComments(): Promise<void> {
         watchSignals(worktreePath, 'task', task.id)
       }
 
-      console.log(
-        `[pr-check] Spawned comment-fix session for task #${task.id}: ${sessionId}`
+      logger.info(
+        `Spawned comment-fix session for task #${task.id}: ${sessionId}`
       )
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      console.error(
-        `[pr-check] Failed to check comments for task #${task.id}: ${message}`
+      logger.error(
+        `Failed to check comments for task #${task.id}: ${message}`
       )
     }
   }
@@ -291,39 +294,24 @@ async function checkTaskPRComments(): Promise<void> {
  * Step 3: Check for merged task PRs.
  *
  * For tasks with a PR, checks if the PR has been merged.
- * If merged: sets prMerged=true, disabled=true, stops watching.
- *
- * Also checks if ALL tasks for a story are merged. If so,
- * moves the story to STORY_PR_REVIEW state.
+ * If merged: moves the task to COMPLETED state.
  */
 async function checkTaskPRMerges(): Promise<void> {
   const db = getDb()
 
-  // Find tasks with PRs that haven't been marked as merged yet
   const tasks = await db.task.findMany({
     where: {
+      state: GridState.PR_REVIEW,
       prUrl: { not: null },
       prMerged: false,
-    },
-    include: {
-      story: {
-        select: { id: true, state: true },
-      },
     },
   })
 
   if (tasks.length === 0) return
 
-  // Only process tasks whose story is in TASK_PR_REVIEW
-  const eligible = tasks.filter((t) => t.story.state === 'TASK_PR_REVIEW')
-  if (eligible.length === 0) return
+  logger.info(`Checking merge status for ${tasks.length} task PRs`)
 
-  console.log(`[pr-check] Checking merge status for ${eligible.length} task PRs`)
-
-  // Track which stories had tasks merge this tick
-  const storiesWithMerges = new Set<number>()
-
-  for (const task of eligible) {
+  for (const task of tasks) {
     try {
       const prUrl = task.prUrl!
       const worktreePath = task.worktreePath!
@@ -332,58 +320,24 @@ async function checkTaskPRMerges(): Promise<void> {
       const pr = await getPullRequestByUrl(prUrl, worktreePath)
 
       if (pr.state === 'MERGED') {
-        console.log(`[pr-check] Task #${task.id} PR has been merged`)
+        logger.info(`Task #${task.id} PR has been merged — moving to COMPLETED`)
 
         await db.task.update({
           where: { id: task.id },
           data: {
+            state: GridState.COMPLETED,
             prMerged: true,
             disabled: true,
+            completedAt: new Date(),
           },
         })
 
-        storiesWithMerges.add(task.storyId)
+        notifyTaskCompleted(task.id, task.title)
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      console.error(
-        `[pr-check] Failed to check merge for task #${task.id}: ${message}`
-      )
-    }
-  }
-
-  // Check if all tasks for any story are now merged
-  for (const storyId of storiesWithMerges) {
-    try {
-      const allTasks = await db.task.findMany({
-        where: { storyId },
-      })
-
-      const allMerged = allTasks.length > 0 && allTasks.every((t) => t.prMerged)
-
-      if (allMerged) {
-        console.log(
-          `[pr-check] All ${allTasks.length} tasks merged for story #${storyId} — moving to STORY_PR_REVIEW`
-        )
-
-        const story = await db.story.findUnique({ where: { id: storyId } })
-
-        await db.story.update({
-          where: { id: storyId },
-          data: {
-            state: 'STORY_PR_REVIEW',
-            disabled: true, // Will be re-enabled after story PR is created
-          },
-        })
-
-        if (story) {
-          notifyAllTasksMerged(storyId, story.title)
-        }
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      console.error(
-        `[pr-check] Failed to check all-merged for story #${storyId}: ${message}`
+      logger.error(
+        `Failed to check merge for task #${task.id}: ${message}`
       )
     }
   }
@@ -396,7 +350,7 @@ export async function runPrCheckStep(): Promise<void> {
   // Check gh CLI auth before doing anything
   const authenticated = await isGhAuthenticated()
   if (!authenticated) {
-    console.log('[pr-check] gh CLI not authenticated, skipping PR check step')
+    logger.info('gh CLI not authenticated, skipping PR check step')
     return
   }
 

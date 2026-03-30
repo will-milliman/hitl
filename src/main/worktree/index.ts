@@ -5,11 +5,11 @@
  * - Lists existing worktrees for a repo
  * - Finds idle worktrees (not assigned to any active story/task)
  * - Creates new worktrees with story/task branches
- * - Removes worktrees when they are no longer needed
+ * - Reuses existing worktrees when possible
  *
  * Worktree naming convention:
- * - Story worktrees: <repoPath>-worktrees/story-<workItemId>
- * - Task worktrees:  <repoPath>-worktrees/task-<workItemId>
+ * - Worktrees are named `<repoName>-<number>` (e.g., `rainier-1`, `rainier-2`)
+ * - Worktrees are reused rather than removed to avoid expensive repo setup
  *
  * Branch naming convention:
  * - Story branches: story/<workItemId>
@@ -19,7 +19,7 @@
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { resolve, basename, dirname, join } from 'path'
-import { existsSync } from 'fs'
+import { existsSync, readdirSync } from 'fs'
 
 const execFileAsync = promisify(execFile)
 
@@ -102,14 +102,35 @@ export function getWorktreesDir(repoPath: string): string {
 }
 
 /**
- * Gets the worktree path for a specific work item.
+ * Gets the worktree path for the next available numbered worktree.
+ *
+ * Finds the next sequential number by scanning existing directories.
+ * E.g., if `rainier-1` and `rainier-2` exist, returns path for `rainier-3`.
  */
-export function getWorktreePath(
-  repoPath: string,
-  type: 'story' | 'task',
-  workItemId: number
-): string {
-  return join(getWorktreesDir(repoPath), `${type}-${workItemId}`)
+export function getNextWorktreePath(repoPath: string): string {
+  const worktreesDir = getWorktreesDir(repoPath)
+  const repoName = basename(repoPath)
+  const prefix = `${repoName}-`
+
+  let maxNumber = 0
+
+  if (existsSync(worktreesDir)) {
+    try {
+      const entries = readdirSync(worktreesDir)
+      for (const entry of entries) {
+        if (entry.startsWith(prefix)) {
+          const num = parseInt(entry.substring(prefix.length), 10)
+          if (!isNaN(num) && num > maxNumber) {
+            maxNumber = num
+          }
+        }
+      }
+    } catch {
+      // Directory might not exist yet
+    }
+  }
+
+  return join(worktreesDir, `${prefix}${maxNumber + 1}`)
 }
 
 /**
@@ -155,7 +176,10 @@ export async function findIdleWorktree(
  * Creates a new git worktree for a story or task.
  *
  * 1. Fetches the latest from origin
- * 2. Creates a new worktree with a new branch based on the default branch
+ * 2. Creates a new worktree with a sequentially numbered name
+ * 3. Creates a new branch based on the default branch
+ *
+ * Worktrees are named `<repoName>-<N>` and are intended to be reused.
  *
  * @param repoPath The main repo path
  * @param type 'story' or 'task'
@@ -171,7 +195,6 @@ export async function createWorktree(
   defaultBranch: string,
   baseBranch?: string
 ): Promise<string> {
-  const worktreePath = getWorktreePath(repoPath, type, workItemId)
   const branchName = getBranchName(type, workItemId)
   const base = baseBranch ?? `origin/${defaultBranch}`
 
@@ -179,21 +202,24 @@ export async function createWorktree(
   console.log(`[worktree] Fetching latest in ${repoPath}...`)
   await git(['fetch', 'origin'], { cwd: repoPath })
 
-  // Check if the branch already exists
+  // Check if the branch already exists with a worktree
   try {
     const { stdout } = await git(
       ['branch', '--list', branchName],
       { cwd: repoPath }
     )
     if (stdout.trim()) {
-      // Branch exists — check if worktree already exists at path
-      if (existsSync(worktreePath)) {
+      // Branch exists — check if it already has a worktree
+      const worktrees = await listWorktrees(repoPath)
+      const existingWt = worktrees.find((wt) => wt.branch === branchName)
+      if (existingWt) {
         console.log(
-          `[worktree] Worktree already exists at ${worktreePath}, reusing`
+          `[worktree] Worktree already exists for branch ${branchName} at ${existingWt.path}, reusing`
         )
-        return worktreePath
+        return existingWt.path
       }
-      // Branch exists but no worktree — add worktree for existing branch
+      // Branch exists but no worktree — create a new numbered worktree for it
+      const worktreePath = getNextWorktreePath(repoPath)
       console.log(
         `[worktree] Branch ${branchName} exists, adding worktree at ${worktreePath}`
       )
@@ -206,7 +232,8 @@ export async function createWorktree(
     // Branch doesn't exist, which is fine — we'll create it
   }
 
-  // Create new worktree with new branch
+  // Create new worktree with new branch using next sequential number
+  const worktreePath = getNextWorktreePath(repoPath)
   console.log(
     `[worktree] Creating worktree at ${worktreePath} (branch: ${branchName} from ${base})`
   )

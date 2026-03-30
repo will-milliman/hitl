@@ -1,16 +1,16 @@
 /**
  * Azure DevOps work item sync.
  *
- * Queries Azure DevOps for stories and tasks in the current sprint
- * assigned to the current user, then upserts them into the local database.
+ * Queries Azure DevOps for tasks in the current sprint assigned to the
+ * current user, then upserts them into the local database.
  *
  * Strategy:
  * 1. Query for all tasks in the current sprint (state: New or Active) assigned to @Me
- * 2. Query for all user stories in the current sprint assigned to @Me
- * 3. Fetch full work item details for both sets
- * 4. Upsert stories into the DB (only if not already in a later grid state)
- * 5. Upsert tasks into the DB, linked to their parent stories
- * 6. Re-activation: detect new tasks on COMPLETED stories and re-enter pipeline
+ * 2. Fetch full work item details
+ * 3. Fetch parent story info for context (lightweight)
+ * 4. Upsert stories as lightweight parent references
+ * 5. Upsert tasks into the DB — new tasks start in PROFILE_ASSIGNMENT
+ * 6. Handle blocked tasks (Azure state = Blocked)
  */
 
 import {
@@ -63,24 +63,14 @@ export async function syncWorkItems(): Promise<void> {
   const taskWiqlResult = await queryWiql(config, taskQuery)
   const taskIds = taskWiqlResult.workItems.map((wi) => wi.id)
 
-  // 2. Query for stories in current sprint
-  const storyQuery = buildSprintStoriesQuery()
-  const storyWiqlResult = await queryWiql(config, storyQuery)
-  const storyIds = storyWiqlResult.workItems.map((wi) => wi.id)
+  logger.info(`Found ${taskIds.length} tasks in current sprint`)
 
-  logger.info(`Found ${storyIds.length} stories, ${taskIds.length} tasks in current sprint`)
+  if (taskIds.length === 0) return
 
-  // 3. Fetch full details
-  const [stories, tasks] = await Promise.all([
-    storyIds.length > 0
-      ? getWorkItems(config, storyIds, STORY_FIELDS)
-      : ([] as WorkItem[]),
-    taskIds.length > 0
-      ? getWorkItems(config, taskIds, TASK_FIELDS)
-      : ([] as WorkItem[]),
-  ])
+  // 2. Fetch full task details
+  const tasks = await getWorkItems(config, taskIds, TASK_FIELDS)
 
-  // 4. Collect parent story IDs from tasks (stories with active tasks, even if story is closed)
+  // 3. Collect parent story IDs from tasks
   const parentStoryIds = new Set<number>()
   for (const task of tasks) {
     const parentId = task.fields['System.Parent']
@@ -89,157 +79,90 @@ export async function syncWorkItems(): Promise<void> {
     }
   }
 
-  // Fetch any parent stories not already in our story list
-  const missingParentIds = [...parentStoryIds].filter(
-    (id) => !storyIds.includes(id)
-  )
+  // 4. Fetch parent stories for context
   let parentStories: WorkItem[] = []
-  if (missingParentIds.length > 0) {
-    parentStories = await getWorkItems(config, missingParentIds, STORY_FIELDS)
-    logger.info(`Fetched ${parentStories.length} additional parent stories`)
+  if (parentStoryIds.size > 0) {
+    parentStories = await getWorkItems(config, [...parentStoryIds], STORY_FIELDS)
+    logger.info(`Fetched ${parentStories.length} parent stories`)
   }
 
-  const allStories = [...stories, ...parentStories]
-
-  // 5. Upsert stories
-  for (const story of allStories) {
+  // 5. Upsert stories as lightweight references
+  for (const story of parentStories) {
     const id = story.fields['System.Id']
     const title = story.fields['System.Title']
-    const azureState = story.fields['System.State']
     const azureUrl = workItemUrl(config.org, config.project, id)
-    const isBlocked = azureState === 'Blocked'
 
-    // Check if this story already exists in the DB
-    const existing = await db.story.findUnique({ where: { id } })
-
-    if (existing) {
-      if (isBlocked && existing.state !== GridState.BLOCKED) {
-        // Story became blocked in Azure — move it to BLOCKED grid
-        await db.story.update({
-          where: { id },
-          data: {
-            title,
-            azureUrl,
-            state: GridState.BLOCKED,
-            disabled: false,
-          },
-        })
-        logger.info(`Story #${id} moved to BLOCKED (Azure state: ${azureState})`)
-      } else if (!isBlocked && existing.state === GridState.BLOCKED) {
-        // Story is no longer blocked in Azure — re-enter pipeline
-        await db.story.update({
-          where: { id },
-          data: {
-            title,
-            azureUrl,
-            state: GridState.PROFILE_ASSIGNMENT,
-            disabled: false,
-          },
-        })
-        logger.info(`Story #${id} unblocked, moved back to PROFILE_ASSIGNMENT`)
-      } else {
-        // Only update title and azureUrl — don't overwrite grid state or profile
-        await db.story.update({
-          where: { id },
-          data: { title, azureUrl },
-        })
-      }
-    } else {
-      // New story — starts in BLOCKED if Azure state is Blocked, otherwise PROFILE_ASSIGNMENT
-      const initialState = isBlocked ? GridState.BLOCKED : GridState.PROFILE_ASSIGNMENT
-      await db.story.create({
-        data: {
-          id,
-          title,
-          azureUrl,
-          state: initialState,
-        },
-      })
-      logger.info(`New story: #${id} "${title}" (state: ${initialState})`)
-    }
+    await db.story.upsert({
+      where: { id },
+      create: { id, title, azureUrl },
+      update: { title, azureUrl },
+    })
   }
 
   // 6. Upsert tasks
-  // Track which completed stories get new tasks (for re-activation)
-  const completedStoriesWithNewTasks = new Set<number>()
-
   for (const task of tasks) {
     const id = task.fields['System.Id']
     const title = task.fields['System.Title']
     const parentId = task.fields['System.Parent']
+    const azureState = task.fields['System.State']
     const azureUrl = workItemUrl(config.org, config.project, id)
-
-    if (typeof parentId !== 'number') {
-      logger.warn(`Task #${id} has no parent, skipping`)
-      continue
-    }
-
-    // Ensure parent story exists in DB (it should after step 5)
-    const parentStory = await db.story.findUnique({ where: { id: parentId } })
-    if (!parentStory) {
-      logger.warn(`Task #${id} parent story #${parentId} not in DB, skipping`)
-      continue
-    }
+    const isBlocked = azureState === 'Blocked'
 
     const existing = await db.task.findUnique({ where: { id } })
 
     if (existing) {
-      // Only update title — don't overwrite PR status, worktree, etc.
-      await db.task.update({
-        where: { id },
-        data: { title, azureUrl },
-      })
+      if (isBlocked && existing.state !== GridState.BLOCKED) {
+        // Task became blocked in Azure — move it to BLOCKED grid
+        await db.task.update({
+          where: { id },
+          data: {
+            title,
+            azureUrl,
+            storyId: typeof parentId === 'number' ? parentId : existing.storyId,
+            state: GridState.BLOCKED,
+            disabled: false,
+          },
+        })
+        logger.info(`Task #${id} moved to BLOCKED (Azure state: ${azureState})`)
+      } else if (!isBlocked && existing.state === GridState.BLOCKED) {
+        // Task is no longer blocked in Azure — re-enter pipeline
+        await db.task.update({
+          where: { id },
+          data: {
+            title,
+            azureUrl,
+            storyId: typeof parentId === 'number' ? parentId : existing.storyId,
+            state: GridState.PROFILE_ASSIGNMENT,
+            disabled: false,
+          },
+        })
+        logger.info(`Task #${id} unblocked, moved back to PROFILE_ASSIGNMENT`)
+      } else {
+        // Only update title and azureUrl — don't overwrite grid state or profile
+        await db.task.update({
+          where: { id },
+          data: {
+            title,
+            azureUrl,
+            storyId: typeof parentId === 'number' ? parentId : existing.storyId,
+          },
+        })
+      }
     } else {
-      // New task
+      // New task — starts in BLOCKED if Azure state is Blocked, otherwise PROFILE_ASSIGNMENT
+      const initialState = isBlocked ? GridState.BLOCKED : GridState.PROFILE_ASSIGNMENT
       await db.task.create({
         data: {
           id,
           title,
-          storyId: parentId,
           azureUrl,
+          storyId: typeof parentId === 'number' ? parentId : null,
+          state: initialState,
         },
       })
-      logger.info(`New task: #${id} "${title}" (story #${parentId})`)
-
-      // If the parent story is COMPLETED, this new task triggers re-activation
-      if (parentStory.state === 'COMPLETED') {
-        completedStoriesWithNewTasks.add(parentId)
-      }
+      logger.info(`New task: #${id} "${title}" (state: ${initialState})`)
     }
   }
 
-  // 7. Re-activation: completed stories with new active tasks re-enter the pipeline
-  for (const storyId of completedStoriesWithNewTasks) {
-    logger.info(
-      `Re-activating completed story #${storyId} — new tasks detected`
-    )
-
-    await db.story.update({
-      where: { id: storyId },
-      data: {
-        state: 'TASK_PR_REVIEW',
-        disabled: false,
-        completedAt: null,
-        errorMessage: null,
-        errorAt: null,
-      },
-    })
-
-    // Reset the new tasks' state so they can be worked on
-    // (They were just created above, so they should already be in
-    // default state, but let's be explicit)
-    const newTasks = await db.task.findMany({
-      where: {
-        storyId,
-        prMerged: false,
-        sessionId: null,
-      },
-    })
-
-    logger.info(
-      `Story #${storyId} re-entered pipeline with ${newTasks.length} new task(s)`
-    )
-  }
-
-  logger.info(`Synced ${allStories.length} stories, ${tasks.length} tasks`)
+  logger.info(`Synced ${parentStories.length} stories, ${tasks.length} tasks`)
 }
