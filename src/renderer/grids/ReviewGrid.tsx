@@ -1,164 +1,241 @@
-import React, { useMemo } from 'react'
-import { createColumnHelper } from '@tanstack/react-table'
-import { Grid } from '../components/Grid'
-import { ExternalLink, ActionLink, Placeholder, ErrorIndicator, ActivityIndicator } from '../components/common'
-import { trpc } from '../trpc/client'
-import type { Task, ProfileMap } from '../../shared/types'
-import { theme } from '../styles/theme'
+import React, { useMemo } from "react";
+import { createColumnHelper } from "@tanstack/react-table";
+import { Grid } from "../components/Grid";
+import {
+  ExternalLink,
+  ActionLink,
+  Placeholder,
+  ActivityIndicator,
+  StatusIndicator,
+} from "../components/common";
+import { trpc } from "../trpc/client";
+import type { Task, ProfileMap } from "../../shared/types";
+import { theme } from "../styles/theme";
 
-const columnHelper = createColumnHelper<Task>()
+const columnHelper = createColumnHelper<Task>();
 
 interface ReviewGridProps {
-  tasks: Task[]
-  profiles: ProfileMap
+  tasks: Task[];
+  profiles: ProfileMap;
 }
 
 export function ReviewGrid({ tasks, profiles }: ReviewGridProps) {
-  const openVSCode = trpc.openInVSCode.useMutation()
-  const openTerminal = trpc.openInTerminal.useMutation()
-  const openExternal = trpc.openExternal.useMutation()
-  const openSession = trpc.openSession.useMutation()
-  const createVirtualDesktop = trpc.createVirtualDesktop.useMutation()
+  const openVSCode = trpc.openInVSCode.useMutation();
+  const openTerminal = trpc.openInTerminal.useMutation();
+  const openExternal = trpc.openExternal.useMutation();
+  const openSession = trpc.openSession.useMutation();
+  const createVirtualDesktop = trpc.createVirtualDesktop.useMutation();
+  const closeVirtualDesktop = trpc.closeVirtualDesktop.useMutation();
+
+  // Track which task IDs have an open virtual desktop
+  const [openDesktops, setOpenDesktops] = React.useState<Set<number>>(
+    () => new Set(),
+  );
 
   const columns = useMemo(
     () => [
-      columnHelper.accessor('id', {
-        header: 'Task Id',
+      columnHelper.display({
+        id: "status",
+        header: "",
+        meta: { fixedWidth: 20 },
+        cell: (info) => (
+          <StatusIndicator
+            errorMessage={info.row.original.errorMessage}
+            disabled={info.row.original.disabled}
+          />
+        ),
+      }),
+      columnHelper.accessor("id", {
+        header: "Task Id",
+        meta: { fixedWidth: 70 },
         cell: (info) => (
           <ExternalLink href={info.row.original.azureUrl}>
             {info.getValue()}
           </ExternalLink>
         ),
       }),
-      columnHelper.accessor('title', {
-        header: 'Task Title',
+      columnHelper.accessor("title", {
+        header: "Task Title",
       }),
-      columnHelper.display({
-        id: 'story',
-        header: 'Story',
+      columnHelper.accessor("sessionId", {
+        header: "Copilot Session",
+        meta: { shrink: true },
         cell: (info) => {
-          const story = info.row.original.story
-          if (!story) return null
-          return (
-            <ExternalLink href={story.azureUrl}>
-              #{story.id}
-            </ExternalLink>
-          )
-        },
-      }),
-      columnHelper.accessor('worktreePath', {
-        header: 'Worktree',
-        cell: (info) => {
-          const path = info.getValue()
-          const profileKey = info.row.original.profileKey
-          const workspace = profileKey ? profiles[profileKey]?.workspace : undefined
-          if (!path) return <Placeholder />
-          return (
-            <ActionLink
-              onClick={() => openVSCode.mutate({ path, workspace })}
-              title={`Open ${path} in VS Code`}
-            >
-              Open in VS Code
-            </ActionLink>
-          )
-        },
-      }),
-      columnHelper.accessor('sessionId', {
-        header: 'Session',
-        cell: (info) => {
-          const sessionId = info.getValue()
-          const worktreePath = info.row.original.worktreePath
-          const disabled = info.row.original.disabled
+          const sessionId = info.getValue();
+          const worktreePath = info.row.original.worktreePath;
+          const disabled = info.row.original.disabled;
           if (!sessionId && disabled) {
-            return <ActivityIndicator tooltip="Starting session..." />
+            return <ActivityIndicator tooltip="Starting session..." />;
           }
-          if (!sessionId) return <Placeholder />
+          if (!sessionId) return <Placeholder />;
           if (disabled) {
             return (
               <ActionLink
                 onClick={() => {
                   if (worktreePath) {
-                    openSession.mutate({ sessionId, cwd: worktreePath })
+                    openSession.mutate({ sessionId, cwd: worktreePath });
                   }
                 }}
                 title={`Session ${sessionId} is active — click to open in terminal`}
               >
                 <ActivityIndicator tooltip={`Active session: ${sessionId}`} />
               </ActionLink>
-            )
+            );
           }
           return (
             <ActionLink
               onClick={() => {
                 if (worktreePath) {
-                  openSession.mutate({ sessionId, cwd: worktreePath })
+                  openSession.mutate({ sessionId, cwd: worktreePath });
                 }
               }}
               title={`Open session ${sessionId} in terminal`}
             >
-              {sessionId.substring(0, 8)}...
+              {sessionId}
             </ActionLink>
-          )
+          );
+        },
+      }),
+      columnHelper.accessor("worktreePath", {
+        header: "IDE",
+        meta: { fixedWidth: 200 },
+        cell: (info) => {
+          const path = info.getValue();
+          const profileKey = info.row.original.profileKey;
+          const workspace = profileKey
+            ? profiles[profileKey]?.workspace
+            : undefined;
+          if (!path) return <Placeholder />;
+          return (
+            <ActionLink
+              onClick={() => openVSCode.mutate({ path, workspace })}
+              title={`Open ${path} in VS Code`}
+            >
+              {(workspace ?? path).split("\\").pop()}
+            </ActionLink>
+          );
         },
       }),
       columnHelper.display({
-        id: 'workspace',
-        header: 'Workspace',
+        id: "workspace",
+        header: "Virtual Desktop",
+        meta: { shrink: true },
         cell: (info) => {
-          const row = info.row.original
-          if (!row.worktreePath) return <Placeholder />
-          const workspace = row.profileKey ? profiles[row.profileKey]?.workspace : undefined
+          const row = info.row.original;
+          if (!row.worktreePath) return <Placeholder />;
+          const workspace = row.profileKey
+            ? profiles[row.profileKey]?.workspace
+            : undefined;
+          const isOpen = openDesktops.has(row.id);
+
+          if (isOpen) {
+            return (
+              <ActionLink
+                onClick={async () => {
+                  try {
+                    await closeVirtualDesktop.mutateAsync({
+                      name: `Task #${row.id}`,
+                    });
+                  } catch (e) {
+                    console.error("[grid] closeVirtualDesktop failed:", e);
+                  }
+                  setOpenDesktops((prev) => {
+                    const next = new Set(prev);
+                    next.delete(row.id);
+                    return next;
+                  });
+                }}
+                title="Close all windows and remove this virtual desktop"
+              >
+                Close
+              </ActionLink>
+            );
+          }
+
           return (
             <ActionLink
               onClick={async () => {
                 try {
-                  await createVirtualDesktop.mutateAsync({ name: `Task #${row.id}` })
+                  await createVirtualDesktop.mutateAsync({
+                    name: `Task #${row.id}`,
+                  });
                 } catch (e) {
-                  console.error('[grid] createVirtualDesktop failed:', e)
+                  console.error("[grid] createVirtualDesktop failed:", e);
                 }
+                setOpenDesktops((prev) => new Set(prev).add(row.id));
                 const opens: Promise<unknown>[] = [
-                  openVSCode.mutateAsync({ path: row.worktreePath!, workspace }).catch((e) => console.error('[grid] openVSCode failed:', e)),
-                  openExternal.mutateAsync({ url: row.azureUrl }).catch((e) => console.error('[grid] openExternal failed:', e)),
-                ]
+                  openVSCode
+                    .mutateAsync({ path: row.worktreePath!, workspace })
+                    .catch((e) =>
+                      console.error("[grid] openVSCode failed:", e),
+                    ),
+                  openExternal
+                    .mutateAsync({ url: row.azureUrl })
+                    .catch((e) =>
+                      console.error("[grid] openExternal failed:", e),
+                    ),
+                ];
                 if (row.sessionId) {
-                  opens.push(openSession.mutateAsync({ sessionId: row.sessionId, cwd: row.worktreePath! }).catch((e) => console.error('[grid] openSession failed:', e)))
+                  opens.push(
+                    openSession
+                      .mutateAsync({
+                        sessionId: row.sessionId,
+                        cwd: row.worktreePath!,
+                      })
+                      .catch((e) =>
+                        console.error("[grid] openSession failed:", e),
+                      ),
+                  );
                 } else {
-                  opens.push(openTerminal.mutateAsync({ path: row.worktreePath! }).catch((e) => console.error('[grid] openTerminal failed:', e)))
+                  opens.push(
+                    openTerminal
+                      .mutateAsync({ path: row.worktreePath! })
+                      .catch((e) =>
+                        console.error("[grid] openTerminal failed:", e),
+                      ),
+                  );
                 }
                 if (row.prUrl) {
-                  opens.push(openExternal.mutateAsync({ url: row.prUrl }).catch((e) => console.error('[grid] openExternal failed:', e)))
+                  opens.push(
+                    openExternal
+                      .mutateAsync({ url: row.prUrl })
+                      .catch((e) =>
+                        console.error("[grid] openExternal failed:", e),
+                      ),
+                  );
                 }
-                await Promise.all(opens)
+                await Promise.all(opens);
               }}
               title="Open VS Code, Terminal/Session, Azure work item, and PR on a new virtual desktop"
             >
-              Open All
+              Open
             </ActionLink>
-          )
+          );
         },
       }),
-      columnHelper.accessor('prUrl', {
-        header: 'Pull Request',
+      columnHelper.accessor("prUrl", {
+        header: "Pull Request",
+        meta: { shrink: true, minWidth: 120 },
         cell: (info) => {
-          const prUrl = info.getValue()
-          if (!prUrl) return <Placeholder />
+          const prUrl = info.getValue();
+          if (!prUrl) return <Placeholder />;
           return (
-            <ExternalLink href={prUrl}>
-              {prUrl.split('/').pop()}
-            </ExternalLink>
-          )
-        },
-      }),
-      columnHelper.accessor('errorMessage', {
-        header: 'Status',
-        cell: (info) => {
-          const error = info.getValue()
-          return <ErrorIndicator errorMessage={error} />
+            <ExternalLink href={prUrl}>{prUrl.split("/").pop()}</ExternalLink>
+          );
         },
       }),
     ],
-    [openVSCode, openTerminal, openExternal, openSession, createVirtualDesktop, profiles]
-  )
+    [
+      openVSCode,
+      openTerminal,
+      openExternal,
+      openSession,
+      createVirtualDesktop,
+      closeVirtualDesktop,
+      openDesktops,
+      profiles,
+    ],
+  );
 
   return (
     <Grid
@@ -168,5 +245,5 @@ export function ReviewGrid({ tasks, profiles }: ReviewGridProps) {
       getRowDisabled={(row) => row.disabled}
       accentColor={theme.colors.peach}
     />
-  )
+  );
 }

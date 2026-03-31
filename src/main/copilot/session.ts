@@ -304,6 +304,51 @@ if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) {
 }
 
 /**
+ * Starts an interactive copilot session in Windows Terminal.
+ *
+ * Unlike `spawnSession`, this opens copilot in a visible terminal
+ * window (no prompt, no automated flags) for manual human use.
+ * The session ID is captured from the log directory.
+ *
+ * Used when the user has opted out of automatic copilot execution
+ * but still wants to work with copilot in the worktree.
+ */
+export async function startInteractiveSession(
+  cwd: string
+): Promise<{ success: boolean; sessionId?: string; error?: string }> {
+  try {
+    const { logDir } = ensureDirs(cwd)
+    const copilotBin = await resolveCopilotPath()
+    const { terminal } = loadSettings()
+    const shell = terminal.shell
+
+    // Snapshot existing log files so we can detect the new one
+    const existingFiles = getExistingLogFiles(logDir)
+
+    const logDirEscaped = logDir.replace(/"/g, '\\"')
+
+    let cmd: string
+    if (shell === 'cmd') {
+      cmd = `wt new-tab -d "${cwd}" -- cmd /k "copilot --log-dir "${logDirEscaped}""`
+    } else {
+      // pwsh or powershell — copilot CLI is a .ps1 script, needs & invocation
+      cmd = `wt new-tab -d "${cwd}" -- ${shell} -ExecutionPolicy Bypass -NoExit -Command "& '${copilotBin}' --log-dir '${logDir}'"`
+    }
+
+    await execAsync(cmd, { windowsHide: true })
+
+    // Wait for the session ID to appear in the log directory
+    const sessionId = await extractSessionId(logDir, existingFiles)
+
+    return { success: true, sessionId }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error(`[copilot] Failed to start interactive session: ${message}`)
+    return { success: false, error: message }
+  }
+}
+
+/**
  * Opens a copilot session in Windows Terminal for human interaction.
  *
  * Uses `copilot --resume SESSION-ID` in the worktree directory.

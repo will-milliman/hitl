@@ -130,7 +130,9 @@ async function processSignal(
       break
 
     case SIGNAL_FILES.SESSION_END:
-      // Session ended — agent is done, enable for human review
+      // Session ended — agent is done, enable for human review.
+      // Task stays in its current state (TASK_EXECUTION or PR_REVIEW).
+      // The cron step handles state transitions (draft PR creation, etc.).
       await db.task.update({
         where: { id: taskId },
         data: { disabled: false },

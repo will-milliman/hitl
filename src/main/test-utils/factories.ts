@@ -176,6 +176,7 @@ export function makePullRequest(overrides: Partial<PullRequest> = {}): PullReque
     number: 101,
     url: 'https://github.com/org/repo/pull/101',
     state: 'OPEN',
+    isDraft: false,
     title: 'Test PR',
     headRefName: 'task/91001',
     baseRefName: 'main',

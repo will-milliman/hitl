@@ -5,6 +5,7 @@
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
+    "dev:mock": "cross-env HITL_ENABLE_MOCK_REPO=true electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "postinstall": "electron-builder install-app-deps",
@@ -49,6 +50,7 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "cross-env": "10.1.0",
     "electron": "33.4.11",
     "electron-builder": "^25.1.8",
     "electron-vite": "^5.0.0",

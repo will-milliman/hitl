@@ -2,14 +2,15 @@
  * Worktree setup step for the cron job.
  *
  * Finds tasks in TASK_EXECUTION state that have a profile assigned
- * but no worktree yet. For each, it creates a git worktree with
- * a new branch `task/<workItemId>` based on the profile's default branch.
+ * but no worktree yet. For each, it first tries to reuse an idle
+ * worktree (one that was parked by a completed task), and falls back
+ * to creating a new worktree if none are available.
  *
  * Task PRs target the default branch directly (no story branch hierarchy).
  */
 
 import { getDb } from '../db'
-import { createWorktree } from '../worktree'
+import { createWorktree, findIdleWorktree, repurposeWorktree } from '../worktree'
 import { loadProfiles } from '../settings'
 import { createLogger } from '../logger'
 import { GridState } from '../../shared/constants'
@@ -39,6 +40,16 @@ export async function setupTaskWorktrees(): Promise<void> {
 
   const profiles = loadProfiles()
 
+  // Collect all worktree paths currently assigned to any task/story
+  // so findIdleWorktree can skip them.
+  const allTasks = await db.task.findMany({
+    where: { worktreePath: { not: null } },
+    select: { worktreePath: true },
+  })
+  const assignedPaths = new Set(
+    allTasks.map((t) => t.worktreePath).filter((p): p is string => p !== null)
+  )
+
   for (const task of tasks) {
     const profileKey = task.profileKey!
     const profile = profiles[profileKey]
@@ -55,19 +66,58 @@ export async function setupTaskWorktrees(): Promise<void> {
         `Setting up worktree for task #${task.id} (profile: ${profileKey})`
       )
 
-      // Tasks branch directly from the default branch (no story branch hierarchy)
-      const worktreePath = await createWorktree(
-        profile.repoPath,
-        'task',
-        task.id,
-        profile.defaultBranch
-      )
+      let worktreePath: string
+
+      // Try to reuse an idle worktree first
+      const idle = await findIdleWorktree(profile.repoPath, assignedPaths)
+
+      if (idle) {
+        logger.info(
+          `Task #${task.id}: reusing idle worktree at ${idle.path}`
+        )
+        try {
+          worktreePath = await repurposeWorktree(
+            idle.path,
+            profile.repoPath,
+            'task',
+            task.id,
+            profile.defaultBranch,
+            task.title
+          )
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          logger.warn(
+            `Task #${task.id}: failed to repurpose idle worktree, creating new one: ${message}`
+          )
+          worktreePath = await createWorktree(
+            profile.repoPath,
+            'task',
+            task.id,
+            profile.defaultBranch,
+            undefined,
+            task.title
+          )
+        }
+      } else {
+        // No idle worktrees — create a new one
+        worktreePath = await createWorktree(
+          profile.repoPath,
+          'task',
+          task.id,
+          profile.defaultBranch,
+          undefined,
+          task.title
+        )
+      }
 
       // Update the task with the worktree path
       await db.task.update({
         where: { id: task.id },
         data: { worktreePath },
       })
+
+      // Track the newly assigned path so subsequent tasks don't pick the same one
+      assignedPaths.add(worktreePath)
 
       logger.info(
         `Task #${task.id} worktree ready at ${worktreePath}`

@@ -24,8 +24,10 @@ const mockDb = {
   },
   task: {
     findUnique: vi.fn(),
+    findMany: vi.fn().mockResolvedValue([]),
     create: vi.fn(),
     update: vi.fn(),
+    deleteMany: vi.fn(),
   },
 }
 
@@ -78,13 +80,15 @@ describe('syncWorkItems', () => {
     expect(mockDb.task.create).not.toHaveBeenCalled()
   })
 
-  it('returns early when WIQL returns no tasks', async () => {
+  it('does not fetch work items when WIQL returns no tasks', async () => {
     vi.mocked(queryWiql).mockResolvedValueOnce({ workItems: [] })
 
     await syncWorkItems()
 
     expect(getWorkItems).not.toHaveBeenCalled()
     expect(mockDb.task.create).not.toHaveBeenCalled()
+    // Deletion step should still run to clean up stale tasks
+    expect(mockDb.task.findMany).toHaveBeenCalled()
   })
 
   it('creates new tasks in PROFILE_ASSIGNMENT state', async () => {

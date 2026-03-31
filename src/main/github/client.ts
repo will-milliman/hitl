@@ -37,10 +37,13 @@ export interface PullRequest {
   number: number
   url: string         // html URL
   state: string       // OPEN, CLOSED, MERGED
+  isDraft: boolean
   title: string
   headRefName: string
   baseRefName: string
   author: { login: string }
+  reviewDecision?: string // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, or empty
+  statusCheckRollup?: Array<{ status: string; conclusion: string | null }>
 }
 
 export interface CreatePRParams {
@@ -48,6 +51,7 @@ export interface CreatePRParams {
   body: string
   head: string  // source branch
   base: string  // target branch
+  draft?: boolean
 }
 
 export interface ReviewComment {
@@ -199,17 +203,24 @@ export async function createPullRequest(
   params: CreatePRParams
 ): Promise<PullRequest> {
   console.log(
-    `[github] Creating PR: ${params.head} → ${params.base} in ${cwd}`
+    `[github] Creating PR: ${params.head} → ${params.base} in ${cwd}${params.draft ? ' (draft)' : ''}`
   )
 
-  const output = await gh([
+  const args = [
     'pr', 'create',
     '--title', params.title,
     '--body', params.body,
     '--head', params.head,
     '--base', params.base,
-    '--json', 'number,url,state,title,headRefName,baseRefName,author',
-  ], cwd)
+  ]
+
+  if (params.draft) {
+    args.push('--draft')
+  }
+
+  args.push('--json', 'number,url,state,isDraft,title,headRefName,baseRefName,author')
+
+  const output = await gh(args, cwd)
 
   // gh pr create with --json returns JSON
   return JSON.parse(output) as PullRequest
@@ -224,7 +235,7 @@ export async function getPullRequest(
 ): Promise<PullRequest> {
   return ghJson<PullRequest>([
     'pr', 'view', String(prNumber),
-    '--json', 'number,url,state,title,headRefName,baseRefName,author',
+    '--json', 'number,url,state,isDraft,title,headRefName,baseRefName,author,reviewDecision,statusCheckRollup',
   ], cwd)
 }
 
@@ -237,7 +248,7 @@ export async function getPullRequestByUrl(
 ): Promise<PullRequest> {
   return ghJson<PullRequest>([
     'pr', 'view', prUrl,
-    '--json', 'number,url,state,title,headRefName,baseRefName,author',
+    '--json', 'number,url,state,isDraft,title,headRefName,baseRefName,author,reviewDecision,statusCheckRollup',
   ], cwd)
 }
 
@@ -259,7 +270,7 @@ export async function findPullRequest(
       '--head', head,
       '--base', base,
       '--limit', '1',
-      '--json', 'number,url,state,title,headRefName,baseRefName,author',
+      '--json', 'number,url,state,isDraft,title,headRefName,baseRefName,author',
     ], cwd)
 
     return prs.length > 0 ? prs[0] : null
@@ -282,6 +293,34 @@ export async function isPrMerged(
   } catch {
     return false
   }
+}
+
+/**
+ * Checks if a PR is ready to merge.
+ *
+ * A PR is considered "ready" when:
+ * - All status checks have passed (or there are no checks)
+ * - The review decision is APPROVED (or no review is required)
+ *
+ * Returns false if the PR is a draft, has failing checks,
+ * or has requested changes.
+ */
+export function isPrReadyToMerge(pr: PullRequest): boolean {
+  if (pr.isDraft) return false
+  if (pr.state !== 'OPEN') return false
+
+  // Check review decision
+  if (pr.reviewDecision === 'CHANGES_REQUESTED') return false
+
+  // Check status checks
+  if (pr.statusCheckRollup && pr.statusCheckRollup.length > 0) {
+    const allPassed = pr.statusCheckRollup.every(
+      (check) => check.conclusion === 'SUCCESS' || check.conclusion === 'NEUTRAL' || check.conclusion === 'SKIPPED'
+    )
+    if (!allPassed) return false
+  }
+
+  return true
 }
 
 /**

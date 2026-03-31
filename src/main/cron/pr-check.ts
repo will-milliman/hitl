@@ -3,21 +3,27 @@
  *
  * Runs on each cron tick (gated by `prCheckEnabled` flag). Handles:
  *
- * 1. **PR Creation**: For tasks in PR_REVIEW that are idle (disabled=false)
- *    and have no PR yet, pushes the task branch and creates a PR targeting
- *    the profile's default branch.
+ * 1. **Draft PR Creation**: For tasks in TASK_EXECUTION that are done
+ *    (disabled=false, sessionId set) with no PR yet, pushes the task
+ *    branch and creates a **draft** PR. The task stays in TASK_EXECUTION
+ *    so the human can review and iterate via the copilot session.
  *
- * 2. **PR Comment Monitoring**: For tasks with a PR and prUpdated=true,
- *    fetches unresolved review comments. If comments are found and the
- *    task session is idle, resumes the copilot session with comment context.
+ * 2. **Draft → Ready Detection**: For tasks in TASK_EXECUTION that have
+ *    a draft PR, checks if the PR has been marked as ready for review.
+ *    If no longer a draft, moves the task to PR_REVIEW.
  *
- * 3. **PR Merge Detection**: For tasks with a PR, checks if the PR has been
- *    merged. If merged, moves the task to COMPLETED state.
+ * 3. **PR Merge/Close Detection + Cleanup**: For tasks in PR_REVIEW with a PR,
+ *    checks if the PR has been merged or closed. If merged, moves the task to
+ *    COMPLETED. If closed (without merge), moves the task to ABANDONED.
+ *    In both cases, cleans up resources:
+ *    - Detaches the git branch so the worktree can be reused
+ *    - Parks the worktree (clears DB fields so it can be reused)
+ *    - Closes all windows on the task's virtual desktop and removes it
  *
  * All GitHub operations use the `gh` CLI (authenticated via `gh auth login`).
  */
 
-import { execFile } from 'child_process'
+import { exec, execFile } from 'child_process'
 import { promisify } from 'util'
 import { getDb } from '../db'
 import {
@@ -25,25 +31,16 @@ import {
   createPullRequest,
   findPullRequest,
   getPullRequestByUrl,
-  getPrReviewComments,
-  findUnresolvedThreads,
-  formatCommentsForPrompt,
-  extractPrNumber,
-  extractRepoFromPrUrl,
+  isPrReadyToMerge,
 } from '../github'
-import {
-  spawnSession,
-  ensureGlobalHooks,
-  watchSignals,
-  isWatching,
-} from '../copilot'
-import { getBranchName } from '../worktree'
+import { getBranchName, getCurrentBranch, listWorktrees } from '../worktree'
 import { loadProfiles } from '../settings'
-import { notifyPrReviewNeeded, notifyTaskCompleted } from '../notifications'
+import { notifyTaskCompleted } from '../notifications'
 import { GridState } from '../../shared/constants'
 import { createLogger } from '../logger'
 
 const logger = createLogger('pr-check')
+const execAsync = promisify(exec)
 const execFileAsync = promisify(execFile)
 
 /**
@@ -72,46 +69,21 @@ async function pushBranch(worktreePath: string, branchName: string): Promise<voi
 }
 
 /**
- * Builds a prompt for copilot to address PR review comments.
- */
-function buildCommentPrompt(
-  taskId: number,
-  taskTitle: string,
-  commentText: string
-): string {
-  return `You are working on Task #${taskId}: ${taskTitle}
-
-Your pull request has received review comments that need to be addressed.
-
-${commentText}
-
-Please:
-1. Read each review comment carefully.
-2. Make the requested code changes.
-3. Commit your changes with a descriptive message referencing Task #${taskId}.
-4. Push your changes to update the PR.
-
-Focus on addressing ALL the review comments.`
-}
-
-/**
- * Step 1: Create PRs for tasks that have completed work but no PR yet.
+ * Step 1: Create draft PRs for tasks that have completed execution.
  *
  * Finds tasks where:
- * - Task is in PR_REVIEW state
+ * - Task is in TASK_EXECUTION state
  * - Task has a worktree and session (agent has worked)
- * - Task is not disabled (agent is idle / done)
+ * - Task is not disabled (agent is done)
  * - Task has no prUrl yet
- * - Task is not already merged
  */
-async function createTaskPRs(): Promise<void> {
+async function createDraftPRs(): Promise<void> {
   const db = getDb()
 
   const tasks = await db.task.findMany({
     where: {
-      state: GridState.PR_REVIEW,
+      state: GridState.TASK_EXECUTION,
       prUrl: null,
-      prMerged: false,
       disabled: false,
       sessionId: { not: null },
       worktreePath: { not: null },
@@ -125,18 +97,24 @@ async function createTaskPRs(): Promise<void> {
 
   if (tasks.length === 0) return
 
-  logger.info(`Found ${tasks.length} tasks needing PRs`)
+  logger.info(`Found ${tasks.length} tasks needing draft PRs`)
 
   for (const task of tasks) {
     try {
       const worktreePath = task.worktreePath!
-      const taskBranch = getBranchName('task', task.id)
       const defaultBranch = getDefaultBranch(task.profileKey)
+
+      // Get the actual branch name from the worktree (may include keywords)
+      const taskBranch = await getCurrentBranch(worktreePath)
+      if (!taskBranch) {
+        logger.warn(`Task #${task.id}: worktree has no branch (detached HEAD), skipping PR`)
+        continue
+      }
 
       // Push the task branch
       await pushBranch(worktreePath, taskBranch)
 
-      // Check if a PR already exists (maybe created manually)
+      // Check if a PR already exists (maybe created by copilot or manually)
       const existing = await findPullRequest(worktreePath, taskBranch, defaultBranch)
 
       let prUrl: string
@@ -144,7 +122,7 @@ async function createTaskPRs(): Promise<void> {
         logger.info(`PR already exists for task #${task.id}: ${existing.url}`)
         prUrl = existing.url
       } else {
-        // Create the PR targeting the default branch
+        // Create a draft PR targeting the default branch
         const storyContext = task.story
           ? `\n**Story**: #${task.story.id} — ${task.story.title}\n`
           : ''
@@ -163,10 +141,11 @@ async function createTaskPRs(): Promise<void> {
           ].join('\n'),
           head: taskBranch,
           base: defaultBranch,
+          draft: true,
         })
 
         prUrl = pr.url
-        logger.info(`Created PR for task #${task.id}: ${prUrl}`)
+        logger.info(`Created draft PR for task #${task.id}: ${prUrl}`)
       }
 
       // Save PR URL to database
@@ -176,19 +155,163 @@ async function createTaskPRs(): Promise<void> {
       })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      logger.error(`Failed to create PR for task #${task.id}: ${message}`)
+      logger.error(`Failed to create draft PR for task #${task.id}: ${message}`)
     }
   }
 }
 
 /**
- * Step 2: Check for unresolved review comments on task PRs.
+ * Step 2: Check if draft PRs have been marked as ready for review.
  *
- * For tasks with a PR that has prUpdated=true,
- * fetches review comments. If there are unresolved comments and
- * the task session is idle, spawns a copilot session to address them.
+ * For tasks in TASK_EXECUTION that have a prUrl, checks whether the
+ * PR is still a draft. If the user has marked it as ready (no longer
+ * a draft), moves the task to PR_REVIEW.
  */
-async function checkTaskPRComments(): Promise<void> {
+async function checkDraftToReady(): Promise<void> {
+  const db = getDb()
+
+  const tasks = await db.task.findMany({
+    where: {
+      state: GridState.TASK_EXECUTION,
+      prUrl: { not: null },
+    },
+  })
+
+  if (tasks.length === 0) return
+
+  logger.info(`Checking draft status for ${tasks.length} task PRs`)
+
+  for (const task of tasks) {
+    try {
+      const prUrl = task.prUrl!
+      const worktreePath = task.worktreePath!
+
+      const pr = await getPullRequestByUrl(prUrl, worktreePath)
+
+      if (!pr.isDraft) {
+        logger.info(`Task #${task.id} PR is no longer a draft — moving to PR_REVIEW`)
+
+        await db.task.update({
+          where: { id: task.id },
+          data: { state: GridState.PR_REVIEW },
+        })
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.error(`Failed to check draft status for task #${task.id}: ${message}`)
+    }
+  }
+}
+
+/**
+ * Closes all windows on a task's virtual desktop and removes the desktop.
+ *
+ * Virtual desktops are created with the name "Task #<id>" when the user
+ * opens the task workspace. This function:
+ * 1. Finds the desktop by name
+ * 2. Gets all window handles on that desktop
+ * 3. Sends WM_CLOSE to each window to close it gracefully
+ * 4. Removes the virtual desktop
+ *
+ * Uses the PowerShell VirtualDesktop module. Failures are logged but
+ * do not prevent the task from completing.
+ */
+async function closeVirtualDesktop(taskId: number): Promise<void> {
+  const desktopName = `Task #${taskId}`
+  const safeName = desktopName.replace(/'/g, "''")
+
+  // PowerShell script that:
+  // 1. Defines a Win32 helper to send WM_CLOSE to window handles
+  // 2. Imports the VirtualDesktop module
+  // 3. Finds the desktop by name
+  // 4. Gets all window handles on that desktop and closes them
+  // 5. Waits briefly for windows to close, then removes the desktop
+  const ps1 = [
+    `Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class Win32Close { [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint Msg, int wParam, int lParam); }'`,
+    `Import-Module VirtualDesktop`,
+    `$desktop = Get-Desktop | Where-Object { $_.Name -eq '${safeName}' }`,
+    `if ($desktop) {`,
+    `  $handles = $desktop | Get-DesktopWindow`,
+    `  foreach ($h in $handles) {`,
+    `    try { [Win32Close]::PostMessage($h, 0x0010, 0, 0) } catch { }`,
+    `  }`,
+    `  Start-Sleep -Milliseconds 1000`,
+    `  $desktop | Remove-Desktop`,
+    `}`,
+  ].join('; ')
+
+  logger.info(`Closing virtual desktop "${desktopName}"`)
+
+  await execAsync(
+    `powershell -NoProfile -ExecutionPolicy Bypass -Command "${ps1}"`,
+    { windowsHide: true, timeout: 15_000 }
+  )
+}
+
+/**
+ * Cleans up resources for a completed task.
+ *
+ * 1. Detaches the git branch in the worktree (git checkout --detach) so the
+ *    old task branch doesn't prevent the worktree from being reused.
+ * 2. Parks the worktree by clearing worktreePath and sessionId in the DB.
+ *    The worktree directory stays on disk so it can be reused by future tasks
+ *    via findIdleWorktree().
+ * 3. Closes the virtual desktop (and all windows on it) that was opened
+ *    for this task, if one exists.
+ *
+ * Cleanup failures are logged but never block the COMPLETED transition —
+ * the state change has already been committed before this is called.
+ */
+async function cleanupCompletedTask(taskId: number, worktreePath: string | null): Promise<void> {
+  const db = getDb()
+
+  // Detach the git branch so the worktree can be reused with a new branch.
+  // Must happen before clearing the DB fields (we need worktreePath).
+  if (worktreePath) {
+    try {
+      await execFileAsync('git', ['checkout', '--detach'], {
+        cwd: worktreePath,
+        timeout: 15_000,
+        windowsHide: true,
+      })
+      logger.info(`Task #${taskId}: branch detached in worktree`)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.error(`Task #${taskId}: failed to detach branch: ${message}`)
+    }
+  }
+
+  // Park the worktree — clear DB fields so it's available for reuse
+  try {
+    await db.task.update({
+      where: { id: taskId },
+      data: { worktreePath: null, sessionId: null },
+    })
+    logger.info(`Task #${taskId}: worktree parked (detached from task)`)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    logger.error(`Task #${taskId}: failed to park worktree: ${message}`)
+  }
+
+  // Close virtual desktop and its windows
+  try {
+    await closeVirtualDesktop(taskId)
+    logger.info(`Task #${taskId}: virtual desktop closed`)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    // This is expected when no virtual desktop was opened for the task
+    logger.debug(`Task #${taskId}: virtual desktop cleanup skipped: ${message}`)
+  }
+}
+
+/**
+ * Step 3: Update disabled state on PR_REVIEW tasks based on merge readiness.
+ *
+ * For tasks in PR_REVIEW with a PR, checks whether the PR is ready to
+ * merge (all checks pass, reviews approved). Tasks are disabled when
+ * the PR is NOT ready to merge yet, and enabled when it IS ready.
+ */
+async function updatePrReadiness(): Promise<void> {
   const db = getDb()
 
   const tasks = await db.task.findMany({
@@ -196,105 +319,47 @@ async function checkTaskPRComments(): Promise<void> {
       state: GridState.PR_REVIEW,
       prUrl: { not: null },
       prMerged: false,
-      disabled: false, // Only check when agent is idle
-      prUpdated: true, // Only check when flagged as updated
     },
   })
 
   if (tasks.length === 0) return
 
-  logger.info(`Checking comments on ${tasks.length} task PRs`)
-
   for (const task of tasks) {
     try {
       const prUrl = task.prUrl!
       const worktreePath = task.worktreePath!
-      const repoInfo = extractRepoFromPrUrl(prUrl)
-      const prNumber = extractPrNumber(prUrl)
 
-      if (!repoInfo || !prNumber) {
-        logger.warn(`Cannot parse PR URL: ${prUrl}`)
-        continue
-      }
-
-      // Fetch review comments via gh api
-      const comments = await getPrReviewComments(
-        worktreePath,
-        repoInfo.owner,
-        repoInfo.repo,
-        prNumber
-      )
-
-      // Get the PR author login
       const pr = await getPullRequestByUrl(prUrl, worktreePath)
-      const authorLogin = pr.author?.login
 
-      // Find unresolved threads (reviewer comments not yet addressed)
-      const unresolved = authorLogin
-        ? findUnresolvedThreads(comments, authorLogin)
-        : []
+      // Skip merged/closed PRs (handled by checkTaskPRMerges)
+      if (pr.state === 'MERGED' || pr.state === 'CLOSED') continue
 
-      // Clear prUpdated flag — we've checked
-      await db.task.update({
-        where: { id: task.id },
-        data: { prUpdated: false },
-      })
+      const ready = isPrReadyToMerge(pr)
+      const shouldBeDisabled = !ready
 
-      if (unresolved.length === 0) {
-        logger.info(`No unresolved comments on task #${task.id} PR`)
-        continue
+      // Only update if the disabled state needs to change
+      if (task.disabled !== shouldBeDisabled) {
+        logger.info(
+          `Task #${task.id} PR ${ready ? 'is ready to merge' : 'is not ready to merge'} — ${shouldBeDisabled ? 'disabling' : 'enabling'}`
+        )
+        await db.task.update({
+          where: { id: task.id },
+          data: { disabled: shouldBeDisabled },
+        })
       }
-
-      logger.info(
-        `Found ${unresolved.length} unresolved comments on task #${task.id}`
-      )
-
-      notifyPrReviewNeeded('task', task.id, task.title, unresolved.length)
-
-      // Format comments into a prompt
-      const commentText = formatCommentsForPrompt(unresolved)
-      const prompt = buildCommentPrompt(task.id, task.title, commentText)
-
-      // Ensure global hooks are configured
-      ensureGlobalHooks()
-
-      // Spawn a new copilot session to address comments
-      const { sessionId } = await spawnSession({
-        cwd: worktreePath,
-        prompt,
-      })
-
-      // Update task with new session and mark as disabled (agent working)
-      await db.task.update({
-        where: { id: task.id },
-        data: {
-          sessionId,
-          disabled: true,
-        },
-      })
-
-      // Start watching for signals
-      if (!isWatching(worktreePath)) {
-        watchSignals(worktreePath, 'task', task.id)
-      }
-
-      logger.info(
-        `Spawned comment-fix session for task #${task.id}: ${sessionId}`
-      )
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      logger.error(
-        `Failed to check comments for task #${task.id}: ${message}`
-      )
+      logger.error(`Failed to check PR readiness for task #${task.id}: ${message}`)
     }
   }
 }
 
 /**
- * Step 3: Check for merged task PRs.
+ * Step 4: Check for merged or closed task PRs.
  *
- * For tasks with a PR, checks if the PR has been merged.
+ * For tasks with a PR, checks if the PR has been merged or closed.
  * If merged: moves the task to COMPLETED state.
+ * If closed (without merge): moves the task to ABANDONED state.
  */
 async function checkTaskPRMerges(): Promise<void> {
   const db = getDb()
@@ -333,6 +398,24 @@ async function checkTaskPRMerges(): Promise<void> {
         })
 
         notifyTaskCompleted(task.id, task.title)
+
+        // Clean up resources (detach branch, park worktree, close virtual desktop)
+        // Runs after the state transition is committed — failures won't
+        // prevent the task from being marked as completed.
+        await cleanupCompletedTask(task.id, task.worktreePath)
+      } else if (pr.state === 'CLOSED') {
+        logger.info(`Task #${task.id} PR has been closed — moving to ABANDONED`)
+
+        await db.task.update({
+          where: { id: task.id },
+          data: {
+            state: GridState.ABANDONED,
+            disabled: true,
+          },
+        })
+
+        // Clean up resources (detach branch, park worktree, close virtual desktop)
+        await cleanupCompletedTask(task.id, task.worktreePath)
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -354,7 +437,8 @@ export async function runPrCheckStep(): Promise<void> {
     return
   }
 
-  await createTaskPRs()
+  await createDraftPRs()
+  await checkDraftToReady()
+  await updatePrReadiness()
   await checkTaskPRMerges()
-  await checkTaskPRComments()
 }

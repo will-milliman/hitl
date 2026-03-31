@@ -18,6 +18,7 @@ export interface Task {
   prMerged: boolean
   azureUrl: string
   disabled: boolean
+  skipCopilot: boolean
   prUpdated: boolean
   completedAt: Date | string | null
   errorMessage: string | null

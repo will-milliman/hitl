@@ -168,6 +168,7 @@ export async function runTaskExecutionStep(): Promise<void> {
       worktreePath: { not: null },
       sessionId: null,
       disabled: true, // Should be disabled (agent will be working)
+      skipCopilot: false, // Don't spawn copilot for tasks that opted out
     },
     include: {
       story: {

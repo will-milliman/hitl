@@ -5,38 +5,19 @@ import {
   ExternalLink,
   ActionLink,
   Placeholder,
-  formatRelativeTime,
   StatusIndicator,
 } from "../components/common";
 import { trpc } from "../trpc/client";
 import type { Task } from "../../shared/types";
 import { theme } from "../styles/theme";
-import styled from "styled-components";
 
 const columnHelper = createColumnHelper<Task>();
 
-const CompletedDate = styled.span`
-  color: ${({ theme }) => theme.colors.subtext0};
-  font-size: 11px;
-`;
-
-function formatCompletedDate(date: Date | string | null): string {
-  if (!date) return "";
-  const d = typeof date === "string" ? new Date(date) : date;
-  return d.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-interface CompletedGridProps {
+interface AbandonedGridProps {
   tasks: Task[];
 }
 
-export function CompletedGrid({ tasks }: CompletedGridProps) {
+export function AbandonedGrid({ tasks }: AbandonedGridProps) {
   const openSession = trpc.openSession.useMutation();
 
   const columns = useMemo(
@@ -64,22 +45,29 @@ export function CompletedGrid({ tasks }: CompletedGridProps) {
       columnHelper.accessor("title", {
         header: "Task Title",
       }),
-      columnHelper.accessor("completedAt", {
-        header: "Completed",
-        meta: { shrink: true },
+      columnHelper.accessor("sessionId", {
+        header: "Copilot Session",
+        meta: { fixedWidth: 120 },
         cell: (info) => {
-          const completedAt = info.getValue();
-          if (!completedAt) return <Placeholder />;
+          const sessionId = info.getValue();
+          const worktreePath = info.row.original.worktreePath;
+          if (!sessionId) return <Placeholder />;
           return (
-            <CompletedDate title={formatCompletedDate(completedAt)}>
-              {formatRelativeTime(completedAt)}
-            </CompletedDate>
+            <ActionLink
+              onClick={() => {
+                if (worktreePath) {
+                  openSession.mutate({ sessionId, cwd: worktreePath });
+                }
+              }}
+              title={`Open session ${sessionId} in terminal`}
+            >
+              Open
+            </ActionLink>
           );
         },
       }),
       columnHelper.accessor("prUrl", {
         header: "Pull Request",
-        meta: { shrink: true, minWidth: 120 },
         cell: (info) => {
           const prUrl = info.getValue();
           if (!prUrl) return <Placeholder />;
@@ -94,12 +82,12 @@ export function CompletedGrid({ tasks }: CompletedGridProps) {
 
   return (
     <Grid
-      title="Completed"
+      title="Abandoned"
       data={tasks}
       columns={columns}
       defaultExpanded={false}
       getRowDisabled={() => true}
-      accentColor={theme.colors.green}
+      accentColor={theme.colors.maroon}
     />
   );
 }

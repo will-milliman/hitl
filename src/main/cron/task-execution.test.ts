@@ -217,7 +217,7 @@ describe('runTaskExecutionStep', () => {
       })
     })
 
-    it('marks task as enabled when session-end signal found', async () => {
+    it('enables task when session-end signal found (stays in TASK_EXECUTION)', async () => {
       const task = makeTask({
         id: 1001,
         state: GridState.TASK_EXECUTION,

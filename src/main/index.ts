@@ -5,7 +5,7 @@ import { resolve } from 'path'
 // In dev, load from project root. In production, .env is optional.
 dotenvConfig({ path: resolve(__dirname, '../../.env') })
 
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, Menu } from 'electron'
 import { join } from 'path'
 import { createIPCHandler } from 'electron-trpc/main'
 import { appRouter } from './trpc/router'
@@ -35,12 +35,16 @@ async function createWindow(): Promise<void> {
     minHeight: 600,
     title: 'HITL',
     backgroundColor: '#1e1e2e', // Catppuccin Mocha base
+    frame: false,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
     },
   })
+
+  // Hide the application menu (File, Edit, etc.)
+  Menu.setApplicationMenu(null)
 
   createIPCHandler({ router: appRouter, windows: [mainWindow] })
 

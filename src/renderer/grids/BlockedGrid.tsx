@@ -1,46 +1,45 @@
-import React, { useMemo } from 'react'
-import { createColumnHelper } from '@tanstack/react-table'
-import { Grid } from '../components/Grid'
-import { ExternalLink } from '../components/common'
-import type { Task } from '../../shared/types'
-import { theme } from '../styles/theme'
+import React, { useMemo } from "react";
+import { createColumnHelper } from "@tanstack/react-table";
+import { Grid } from "../components/Grid";
+import { ExternalLink, StatusIndicator } from "../components/common";
+import type { Task } from "../../shared/types";
+import { theme } from "../styles/theme";
 
-const columnHelper = createColumnHelper<Task>()
+const columnHelper = createColumnHelper<Task>();
 
 interface BlockedGridProps {
-  tasks: Task[]
+  tasks: Task[];
 }
 
 export function BlockedGrid({ tasks }: BlockedGridProps) {
   const columns = useMemo(
     () => [
-      columnHelper.accessor('id', {
-        header: 'Task Id',
+      columnHelper.display({
+        id: "status",
+        header: "",
+        meta: { fixedWidth: 20 },
+        cell: (info) => (
+          <StatusIndicator
+            errorMessage={info.row.original.errorMessage}
+            disabled={info.row.original.disabled}
+          />
+        ),
+      }),
+      columnHelper.accessor("id", {
+        header: "Task Id",
+        meta: { fixedWidth: 70 },
         cell: (info) => (
           <ExternalLink href={info.row.original.azureUrl}>
             {info.getValue()}
           </ExternalLink>
         ),
       }),
-      columnHelper.accessor('title', {
-        header: 'Task Title',
-      }),
-      columnHelper.display({
-        id: 'story',
-        header: 'Story',
-        cell: (info) => {
-          const story = info.row.original.story
-          if (!story) return null
-          return (
-            <ExternalLink href={story.azureUrl}>
-              #{story.id}
-            </ExternalLink>
-          )
-        },
+      columnHelper.accessor("title", {
+        header: "Task Title",
       }),
     ],
-    []
-  )
+    [],
+  );
 
   return (
     <Grid
@@ -51,5 +50,5 @@ export function BlockedGrid({ tasks }: BlockedGridProps) {
       getRowDisabled={() => true}
       accentColor={theme.colors.red}
     />
-  )
+  );
 }

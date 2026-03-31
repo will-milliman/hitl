@@ -17,6 +17,7 @@ export {
   getPullRequestByUrl,
   findPullRequest,
   isPrMerged,
+  isPrReadyToMerge,
   extractPrNumber,
   extractRepoFromPrUrl,
   getPrReviewComments,

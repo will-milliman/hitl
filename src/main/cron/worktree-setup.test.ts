@@ -31,6 +31,8 @@ vi.mock('../db', () => ({
 
 vi.mock('../worktree', () => ({
   createWorktree: vi.fn().mockResolvedValue('/tmp/test-worktree'),
+  findIdleWorktree: vi.fn().mockResolvedValue(null),
+  repurposeWorktree: vi.fn().mockResolvedValue('/tmp/test-worktree'),
 }))
 
 vi.mock('../settings', () => ({
@@ -46,7 +48,7 @@ vi.mock('../settings', () => ({
 // ─── Imports (after mocks) ─────────────────────────────────
 
 import { setupTaskWorktrees } from './worktree-setup'
-import { createWorktree } from '../worktree'
+import { createWorktree, findIdleWorktree, repurposeWorktree } from '../worktree'
 import { loadProfiles } from '../settings'
 import { makeTask } from '../test-utils/factories'
 import { GridState } from '../../shared/constants'
@@ -75,7 +77,9 @@ describe('setupTaskWorktrees', () => {
       worktreePath: null,
       disabled: true,
     })
-    mockDb.task.findMany.mockResolvedValueOnce([task])
+    mockDb.task.findMany
+      .mockResolvedValueOnce([task])  // eligible tasks
+      .mockResolvedValueOnce([])      // assigned paths
     vi.mocked(createWorktree).mockResolvedValueOnce('C:/repos/test-repo-worktrees/test-repo-1')
 
     await setupTaskWorktrees()
@@ -100,7 +104,9 @@ describe('setupTaskWorktrees', () => {
       worktreePath: null,
       disabled: true,
     })
-    mockDb.task.findMany.mockResolvedValueOnce([task])
+    mockDb.task.findMany
+      .mockResolvedValueOnce([task])  // eligible tasks
+      .mockResolvedValueOnce([])      // assigned paths
 
     await setupTaskWorktrees()
 
@@ -123,7 +129,9 @@ describe('setupTaskWorktrees', () => {
       worktreePath: null,
       disabled: true,
     })
-    mockDb.task.findMany.mockResolvedValueOnce([task1, task2])
+    mockDb.task.findMany
+      .mockResolvedValueOnce([task1, task2])  // eligible tasks
+      .mockResolvedValueOnce([])              // assigned paths
     vi.mocked(createWorktree)
       .mockRejectedValueOnce(new Error('git fetch failed'))
       .mockResolvedValueOnce('C:/repos/test-repo-worktrees/test-repo-2')
@@ -144,7 +152,9 @@ describe('setupTaskWorktrees', () => {
       makeTask({ id: 1001, profileKey: 'integrate', worktreePath: null, disabled: true, state: GridState.TASK_EXECUTION }),
       makeTask({ id: 1002, profileKey: 'integrate', worktreePath: null, disabled: true, state: GridState.TASK_EXECUTION }),
     ]
-    mockDb.task.findMany.mockResolvedValueOnce(tasks)
+    mockDb.task.findMany
+      .mockResolvedValueOnce(tasks)  // eligible tasks
+      .mockResolvedValueOnce([])     // assigned paths
     vi.mocked(createWorktree)
       .mockResolvedValueOnce('C:/repos/test-repo-worktrees/test-repo-1')
       .mockResolvedValueOnce('C:/repos/test-repo-worktrees/test-repo-2')
@@ -167,6 +177,86 @@ describe('setupTaskWorktrees', () => {
         worktreePath: null,
         disabled: true,
       },
+    })
+  })
+
+  it('reuses an idle worktree when one is available', async () => {
+    const task = makeTask({
+      id: 1001,
+      state: GridState.TASK_EXECUTION,
+      profileKey: 'integrate',
+      worktreePath: null,
+      disabled: true,
+    })
+    mockDb.task.findMany
+      .mockResolvedValueOnce([task])  // eligible tasks
+      .mockResolvedValueOnce([])      // assigned paths (none)
+
+    vi.mocked(findIdleWorktree).mockResolvedValueOnce({
+      path: 'C:/repos/test-repo-worktrees/test-repo-1',
+      head: 'abc123',
+      branch: null, // detached
+      bare: false,
+    })
+    vi.mocked(repurposeWorktree).mockResolvedValueOnce(
+      'C:/repos/test-repo-worktrees/test-repo-1'
+    )
+
+    await setupTaskWorktrees()
+
+    // Should repurpose the idle worktree, not create a new one
+    expect(repurposeWorktree).toHaveBeenCalledWith(
+      'C:/repos/test-repo-worktrees/test-repo-1',
+      'C:/repos/test-repo',
+      'task',
+      1001,
+      'main'
+    )
+    expect(createWorktree).not.toHaveBeenCalled()
+    expect(mockDb.task.update).toHaveBeenCalledWith({
+      where: { id: 1001 },
+      data: { worktreePath: 'C:/repos/test-repo-worktrees/test-repo-1' },
+    })
+  })
+
+  it('falls back to creating new worktree when repurpose fails', async () => {
+    const task = makeTask({
+      id: 1001,
+      state: GridState.TASK_EXECUTION,
+      profileKey: 'integrate',
+      worktreePath: null,
+      disabled: true,
+    })
+    mockDb.task.findMany
+      .mockResolvedValueOnce([task])
+      .mockResolvedValueOnce([])
+
+    vi.mocked(findIdleWorktree).mockResolvedValueOnce({
+      path: 'C:/repos/test-repo-worktrees/test-repo-1',
+      head: 'abc123',
+      branch: null,
+      bare: false,
+    })
+    vi.mocked(repurposeWorktree).mockRejectedValueOnce(
+      new Error('git checkout failed')
+    )
+    vi.mocked(createWorktree).mockResolvedValueOnce(
+      'C:/repos/test-repo-worktrees/test-repo-2'
+    )
+
+    await setupTaskWorktrees()
+
+    // repurpose failed — should NOT have saved that path
+    // createWorktree fallback should have been called
+    expect(createWorktree).toHaveBeenCalledWith(
+      'C:/repos/test-repo',
+      'task',
+      1001,
+      'main'
+    )
+    expect(mockDb.task.update).toHaveBeenCalledWith({
+      where: { id: 1001 },
+      data: { worktreePath: 'C:/repos/test-repo-worktrees/test-repo-2' },
     })
   })
 })

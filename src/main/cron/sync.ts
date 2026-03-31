@@ -11,6 +11,8 @@
  * 4. Upsert stories as lightweight parent references
  * 5. Upsert tasks into the DB — new tasks start in PROFILE_ASSIGNMENT
  * 6. Handle blocked tasks (Azure state = Blocked)
+ * 7. Remove active tasks that no longer appear in the sprint query
+ * 8. Remove completed/abandoned tasks that were deleted from Azure
  */
 
 import {
@@ -65,10 +67,14 @@ export async function syncWorkItems(): Promise<void> {
 
   logger.info(`Found ${taskIds.length} tasks in current sprint`)
 
-  if (taskIds.length === 0) return
+  // Build a set of Azure task IDs for deletion detection
+  const azureTaskIdSet = new Set(taskIds)
 
-  // 2. Fetch full task details
-  const tasks = await getWorkItems(config, taskIds, TASK_FIELDS)
+  // 2. Fetch full task details (if any)
+  let tasks: WorkItem[] = []
+  if (taskIds.length > 0) {
+    tasks = await getWorkItems(config, taskIds, TASK_FIELDS)
+  }
 
   // 3. Collect parent story IDs from tasks
   const parentStoryIds = new Set<number>()
@@ -161,6 +167,66 @@ export async function syncWorkItems(): Promise<void> {
         },
       })
       logger.info(`New task: #${id} "${title}" (state: ${initialState})`)
+    }
+  }
+
+  // 7. Remove active tasks that no longer appear in the sprint query
+  // COMPLETED and ABANDONED tasks are excluded here because they naturally
+  // leave the sprint query when closed — they are checked separately in step 8.
+  const localActiveTasks = await db.task.findMany({
+    where: {
+      state: { notIn: [GridState.COMPLETED, GridState.ABANDONED] },
+    },
+    select: { id: true },
+  })
+
+  const removedActiveIds = localActiveTasks
+    .filter((t) => !azureTaskIdSet.has(t.id))
+    .map((t) => t.id)
+
+  if (removedActiveIds.length > 0) {
+    await db.task.deleteMany({
+      where: { id: { in: removedActiveIds } },
+    })
+    logger.info(
+      `Removed ${removedActiveIds.length} active tasks no longer in Azure: ${removedActiveIds.join(', ')}`
+    )
+  }
+
+  // 8. Remove completed/abandoned tasks that were deleted from Azure
+  // These tasks won't appear in the sprint query (which filters by New/Active),
+  // so we check Azure directly to see if the work items still exist.
+  const localTerminalTasks = await db.task.findMany({
+    where: {
+      state: { in: [GridState.COMPLETED, GridState.ABANDONED] },
+    },
+    select: { id: true },
+  })
+
+  if (localTerminalTasks.length > 0) {
+    const terminalIds = localTerminalTasks.map((t) => t.id)
+    const idList = terminalIds.join(',')
+
+    // Use a WIQL query to check which of these IDs still exist in Azure
+    // (regardless of state/sprint/assignee — just existence)
+    const existenceQuery = `
+      SELECT [System.Id]
+      FROM WorkItems
+      WHERE [System.Id] IN (${idList})
+    `.trim()
+
+    const existenceResult = await queryWiql(config, existenceQuery)
+    const existingIds = new Set(existenceResult.workItems.map((wi) => wi.id))
+
+    const removedTerminalIds = terminalIds.filter((id) => !existingIds.has(id))
+
+    if (removedTerminalIds.length > 0) {
+      await db.task.deleteMany({
+        where: { id: { in: removedTerminalIds } },
+      })
+      logger.info(
+        `Removed ${removedTerminalIds.length} completed/abandoned tasks deleted from Azure: ${removedTerminalIds.join(', ')}`
+      )
     }
   }
 

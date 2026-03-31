@@ -12,6 +12,7 @@ import { TaskExecutionGrid } from './grids/TaskExecutionGrid'
 import { ReviewGrid } from './grids/ReviewGrid'
 import { CompletedGrid } from './grids/CompletedGrid'
 import { BlockedGrid } from './grids/BlockedGrid'
+import { AbandonedGrid } from './grids/AbandonedGrid'
 import { GridState } from '../shared/constants'
 import type { Task, ProfileMap } from '../shared/types'
 
@@ -78,6 +79,7 @@ function AppContent() {
       [GridState.PR_REVIEW]: [],
       [GridState.COMPLETED]: [],
       [GridState.BLOCKED]: [],
+      [GridState.ABANDONED]: [],
     }
     for (const task of tasks) {
       if (grouped[task.state]) {
@@ -87,8 +89,8 @@ function AppContent() {
     return grouped
   }, [tasks])
 
-  const handleAssignProfile = (taskId: number, profileKey: string) => {
-    assignTaskProfileMutation.mutate({ taskId, profileKey })
+  const handleAssignProfile = (taskId: number, profileKey: string, skipCopilot: boolean) => {
+    assignTaskProfileMutation.mutate({ taskId, profileKey, skipCopilot })
   }
 
   // Show loading spinner on initial load (after all hooks)
@@ -116,6 +118,9 @@ function AppContent() {
       />
       <BlockedGrid
         tasks={tasksByState[GridState.BLOCKED]}
+      />
+      <AbandonedGrid
+        tasks={tasksByState[GridState.ABANDONED]}
       />
     </>
   )

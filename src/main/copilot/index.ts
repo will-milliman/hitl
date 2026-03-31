@@ -10,6 +10,7 @@
 export {
   spawnSession,
   openSessionInTerminal,
+  startInteractiveSession,
   extractSessionId,
   readLatestSignal,
   clearSignals,

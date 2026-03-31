@@ -4,5 +4,10 @@
     "defaultBranch": "main",
     "description": "Integrate App",
     "workspace": "/monorepo/desktop/ui/.vscode/integrate.code-workspace"
+  },
+  "mock-repo": {
+    "repoPath": "C:/Projects/hitl-mock-repo",
+    "defaultBranch": "main",
+    "description": "HITL Mock Repo"
   }
 }

@@ -182,7 +182,14 @@ export function clearSettingsCache(): void {
 /**
  * Convenience: loads the profile map from settings.
  * Falls back to profile.json if no profiles configured in settings.
+ * Excludes the 'mock-repo' profile unless HITL_ENABLE_MOCK_REPO is set.
  */
 export function loadProfiles(): Record<string, { repoPath: string; defaultBranch: string; description?: string; workspace?: string }> {
-  return loadSettings().profiles
+  const profiles = { ...loadSettings().profiles }
+
+  if (!process.env.HITL_ENABLE_MOCK_REPO) {
+    delete profiles['mock-repo']
+  }
+
+  return profiles
 }

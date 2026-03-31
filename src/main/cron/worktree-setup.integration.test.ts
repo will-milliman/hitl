@@ -21,6 +21,8 @@ vi.mock('../logger', () => ({
 
 vi.mock('../worktree', () => ({
   createWorktree: vi.fn().mockResolvedValue('C:/repos/test-repo-worktrees/test-repo-1'),
+  findIdleWorktree: vi.fn().mockResolvedValue(null),
+  repurposeWorktree: vi.fn().mockResolvedValue('C:/repos/test-repo-worktrees/test-repo-1'),
 }))
 
 vi.mock('../settings', () => ({
@@ -47,7 +49,7 @@ vi.mock('../db', () => ({
 // ─── Imports (after mocks) ─────────────────────────────────
 
 import { setupTaskWorktrees } from './worktree-setup'
-import { createWorktree } from '../worktree'
+import { createWorktree, findIdleWorktree, repurposeWorktree } from '../worktree'
 import { loadProfiles } from '../settings'
 import { GridState } from '../../shared/constants'
 
@@ -270,5 +272,87 @@ describe('setupTaskWorktrees (integration)', () => {
     // Second task should succeed
     const successTask = await db.task.findUnique({ where: { id: 7021 } })
     expect(successTask!.worktreePath).toBe('C:/repos/wt/task-7021')
+  })
+
+  it('reuses an idle worktree instead of creating a new one', async () => {
+    // A completed task that has a parked worktree (worktreePath is null in DB,
+    // but the worktree directory still exists on disk and is discoverable by git)
+    await db.task.create({
+      data: {
+        id: 7030,
+        title: 'Needs worktree',
+        azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/7030',
+        state: GridState.TASK_EXECUTION,
+        profileKey: 'integrate',
+        worktreePath: null,
+        disabled: true,
+      },
+    })
+
+    vi.mocked(findIdleWorktree).mockResolvedValueOnce({
+      path: 'C:/repos/test-repo-worktrees/test-repo-1',
+      head: 'abc123',
+      branch: null, // detached
+      bare: false,
+    })
+    vi.mocked(repurposeWorktree).mockResolvedValueOnce(
+      'C:/repos/test-repo-worktrees/test-repo-1'
+    )
+
+    await setupTaskWorktrees()
+
+    // Should repurpose, not create
+    expect(repurposeWorktree).toHaveBeenCalledWith(
+      'C:/repos/test-repo-worktrees/test-repo-1',
+      'C:/repos/test-repo',
+      'task',
+      7030,
+      'main'
+    )
+    expect(createWorktree).not.toHaveBeenCalled()
+
+    // Verify DB was updated
+    const task = await db.task.findUnique({ where: { id: 7030 } })
+    expect(task!.worktreePath).toBe('C:/repos/test-repo-worktrees/test-repo-1')
+  })
+
+  it('falls back to creating new worktree when repurpose fails', async () => {
+    await db.task.create({
+      data: {
+        id: 7031,
+        title: 'Repurpose will fail',
+        azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/7031',
+        state: GridState.TASK_EXECUTION,
+        profileKey: 'integrate',
+        worktreePath: null,
+        disabled: true,
+      },
+    })
+
+    vi.mocked(findIdleWorktree).mockResolvedValueOnce({
+      path: 'C:/repos/test-repo-worktrees/test-repo-1',
+      head: 'abc123',
+      branch: null,
+      bare: false,
+    })
+    vi.mocked(repurposeWorktree).mockRejectedValueOnce(
+      new Error('git checkout failed')
+    )
+    vi.mocked(createWorktree).mockResolvedValueOnce(
+      'C:/repos/test-repo-worktrees/test-repo-2'
+    )
+
+    await setupTaskWorktrees()
+
+    // Should have fallen back to createWorktree
+    expect(createWorktree).toHaveBeenCalledWith(
+      'C:/repos/test-repo',
+      'task',
+      7031,
+      'main'
+    )
+
+    const task = await db.task.findUnique({ where: { id: 7031 } })
+    expect(task!.worktreePath).toBe('C:/repos/test-repo-worktrees/test-repo-2')
   })
 })

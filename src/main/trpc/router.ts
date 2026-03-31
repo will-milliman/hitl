@@ -1,11 +1,12 @@
 import { initTRPC } from '@trpc/server'
 import { z } from 'zod'
 import { exec } from 'child_process'
+import { BrowserWindow } from 'electron'
 import { getDb } from '../db'
 import { getCronStatus } from '../cron'
 import { getAzureConfig } from '../cron/config'
 import { listWorktrees, pruneWorktrees } from '../worktree'
-import { openSessionInTerminal, getActiveWatcherCount } from '../copilot'
+import { openSessionInTerminal, startInteractiveSession, getActiveWatcherCount } from '../copilot'
 import { isGhAuthenticated } from '../github'
 import { getRecentLogs, listLogFiles, readLogFile, getLogDir, getSessionLogs } from '../logger'
 import { getUpdateStatus, checkForUpdates, installUpdate } from '../updater'
@@ -83,6 +84,7 @@ export const appRouter = t.router({
       z.object({
         taskId: z.number(),
         profileKey: z.string(),
+        skipCopilot: z.boolean().optional(),
       })
     )
     .mutation(async ({ input }) => {
@@ -92,7 +94,8 @@ export const appRouter = t.router({
         data: {
           profileKey: input.profileKey,
           state: 'TASK_EXECUTION',
-          disabled: true, // Agent will begin working
+          disabled: input.skipCopilot ? false : true, // If skipping copilot, don't disable (user acts manually)
+          skipCopilot: input.skipCopilot ?? false,
         },
       })
     }),
@@ -321,6 +324,78 @@ export const appRouter = t.router({
       })
     }),
 
+  /** Close a Windows 11 virtual desktop by name — closes all windows on it and removes it */
+  closeVirtualDesktop: t.procedure
+    .input(
+      z.object({
+        name: z.string(),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const safeName = input.name.replace(/'/g, "''")
+      const ps1 = [
+        `Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class Win32Close { [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint Msg, int wParam, int lParam); }'`,
+        `Import-Module VirtualDesktop`,
+        `$desktop = Get-Desktop | Where-Object { $_.Name -eq '${safeName}' }`,
+        `if ($desktop) {`,
+        `  $handles = $desktop | Get-DesktopWindow`,
+        `  foreach ($h in $handles) {`,
+        `    try { [Win32Close]::PostMessage($h, 0x0010, 0, 0) } catch { }`,
+        `  }`,
+        `  Start-Sleep -Milliseconds 1000`,
+        `  $desktop | Remove-Desktop`,
+        `}`,
+      ].join('; ')
+
+      return new Promise<{ success: boolean; error?: string }>((resolve) => {
+        exec(
+          `powershell -NoProfile -ExecutionPolicy Bypass -Command "${ps1}"`,
+          { windowsHide: true, timeout: 15_000 },
+          (err) => {
+            if (err) {
+              console.error('[router] Failed to close virtual desktop:', err.message)
+              resolve({ success: false, error: err.message })
+            } else {
+              resolve({ success: true })
+            }
+          }
+        )
+      })
+    }),
+
+  // ─── Window Controls ─────────────────────────────────
+
+  /** Check if the main window is maximized */
+  windowIsMaximized: t.procedure.query(() => {
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+    return { maximized: win?.isMaximized() ?? false }
+  }),
+
+  /** Minimize the main window */
+  windowMinimize: t.procedure.mutation(() => {
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+    win?.minimize()
+    return { success: true }
+  }),
+
+  /** Toggle maximize/restore on the main window */
+  windowMaximize: t.procedure.mutation(() => {
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+    if (win?.isMaximized()) {
+      win.restore()
+    } else {
+      win?.maximize()
+    }
+    return { success: true }
+  }),
+
+  /** Close the main window */
+  windowClose: t.procedure.mutation(() => {
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+    win?.close()
+    return { success: true }
+  }),
+
   /** Open a copilot session in Windows Terminal */
   openSession: t.procedure
     .input(
@@ -331,6 +406,27 @@ export const appRouter = t.router({
     )
     .mutation(async ({ input }) => {
       return openSessionInTerminal(input.sessionId, input.cwd)
+    }),
+
+  /** Start a fresh interactive copilot session in Windows Terminal (manual mode) */
+  startCopilotSession: t.procedure
+    .input(
+      z.object({
+        cwd: z.string(),
+        taskId: z.number(),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const result = await startInteractiveSession(input.cwd)
+      if (result.success && result.sessionId) {
+        // Save session ID to database
+        const db = getDb()
+        await db.task.update({
+          where: { id: input.taskId },
+          data: { sessionId: result.sessionId },
+        })
+      }
+      return result
     }),
 
   /** List all worktrees for a given profile */

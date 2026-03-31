@@ -29,6 +29,7 @@ model Task {
   prMerged     Boolean   @default(false)        // Whether the task PR has been merged
   azureUrl     String                           // Azure DevOps work item URL
   disabled     Boolean   @default(false)        // Whether item is disabled in the grid
+  skipCopilot  Boolean   @default(false)        // Skip automatic copilot session (manual mode)
   prUpdated    Boolean   @default(false)        // Flag: GitHub webhook indicated PR update
   completedAt  DateTime?                        // When the task was moved to COMPLETED
   errorMessage String?                          // Last error message (null = no error)

@@ -134,13 +134,106 @@ export function getNextWorktreePath(repoPath: string): string {
 }
 
 /**
+ * Extracts two keywords from a title for use in branch names.
+ *
+ * Strips common filler words and picks the first two meaningful words,
+ * lowercased and joined with a hyphen. Falls back to 'update' if the
+ * title doesn't have enough useful words.
+ */
+export function extractKeywords(title: string): string {
+  const stopWords = new Set([
+    'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+    'of', 'with', 'by', 'from', 'is', 'are', 'was', 'were', 'be', 'been',
+    'has', 'have', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
+    'should', 'may', 'might', 'can', 'shall', 'it', 'its', 'this', 'that',
+    'these', 'those', 'i', 'we', 'you', 'they', 'he', 'she', 'as', 'if',
+    'not', 'no', 'so', 'up', 'out', 'all', 'into', 'also', 'than', 'then',
+    'when', 'where', 'how', 'what', 'which', 'who', 'whom', 'each', 'every',
+  ])
+
+  const words = title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '') // strip non-alphanumeric
+    .split(/\s+/)
+    .filter((w) => w.length > 1 && !stopWords.has(w))
+
+  if (words.length === 0) return 'update'
+  if (words.length === 1) return words[0]
+  return `${words[0]}-${words[1]}`
+}
+
+/**
  * Gets the branch name for a work item.
+ *
+ * Format: `<type>/<workItemId>/<keywords>`
+ * e.g., `task/88888/add-feature`
+ *
+ * If no title is provided, falls back to a simple `<type>/<workItemId>` format.
  */
 export function getBranchName(
   type: 'story' | 'task',
-  workItemId: number
+  workItemId: number,
+  title?: string
 ): string {
-  return `${type}/${workItemId}`
+  if (!title) return `${type}/${workItemId}`
+  const keywords = extractKeywords(title)
+  return `${type}/${workItemId}/${keywords}`
+}
+
+/**
+ * Generates a unique branch name by checking if the branch already exists.
+ *
+ * If the base branch name (with keywords) already exists, appends a
+ * numeric suffix (-2, -3, etc.) until a unique name is found.
+ *
+ * @param repoPath The repo path to check branches against
+ * @param type 'story' or 'task'
+ * @param workItemId The Azure DevOps work item ID
+ * @param title The work item title (used to extract keywords)
+ * @returns A unique branch name
+ */
+export async function getUniqueBranchName(
+  repoPath: string,
+  type: 'story' | 'task',
+  workItemId: number,
+  title?: string
+): Promise<string> {
+  const baseName = getBranchName(type, workItemId, title)
+
+  // Check if this branch already exists
+  try {
+    const { stdout } = await git(['branch', '--list', baseName], { cwd: repoPath })
+    if (!stdout.trim()) {
+      // Also check remote branches
+      const { stdout: remoteOut } = await git(
+        ['branch', '-r', '--list', `origin/${baseName}`],
+        { cwd: repoPath }
+      )
+      if (!remoteOut.trim()) return baseName
+    }
+  } catch {
+    return baseName // If git fails, just use the base name
+  }
+
+  // Branch exists — try with numeric suffixes
+  for (let i = 2; i <= 50; i++) {
+    const candidate = `${baseName}-${i}`
+    try {
+      const { stdout } = await git(['branch', '--list', candidate], { cwd: repoPath })
+      if (!stdout.trim()) {
+        const { stdout: remoteOut } = await git(
+          ['branch', '-r', '--list', `origin/${candidate}`],
+          { cwd: repoPath }
+        )
+        if (!remoteOut.trim()) return candidate
+      }
+    } catch {
+      return candidate
+    }
+  }
+
+  // Extremely unlikely fallback
+  return `${baseName}-${Date.now()}`
 }
 
 /**
@@ -158,6 +251,8 @@ export async function findIdleWorktree(
   const worktrees = await listWorktrees(repoPath)
   const worktreesDir = getWorktreesDir(repoPath)
 
+  const candidates: WorktreeEntry[] = []
+
   for (const wt of worktrees) {
     // Skip the main worktree (the repo itself)
     if (wt.path === resolve(repoPath)) continue
@@ -166,10 +261,15 @@ export async function findIdleWorktree(
     // Skip worktrees that are currently assigned
     if (assignedPaths.has(wt.path)) continue
 
-    return wt
+    candidates.push(wt)
   }
 
-  return null
+  if (candidates.length === 0) return null
+
+  // Prefer detached (parked) worktrees — these are ready for reuse
+  // without needing to detach an existing branch first
+  const detached = candidates.find((wt) => wt.branch === null)
+  return detached ?? candidates[0]
 }
 
 /**
@@ -193,37 +293,44 @@ export async function createWorktree(
   type: 'story' | 'task',
   workItemId: number,
   defaultBranch: string,
-  baseBranch?: string
+  baseBranch?: string,
+  title?: string
 ): Promise<string> {
-  const branchName = getBranchName(type, workItemId)
   const base = baseBranch ?? `origin/${defaultBranch}`
 
   // Fetch latest from origin
   console.log(`[worktree] Fetching latest in ${repoPath}...`)
   await git(['fetch', 'origin'], { cwd: repoPath })
 
-  // Check if the branch already exists with a worktree
+  // Check if a branch for this work item already exists (any keyword variant)
+  const branchPrefix = `${type}/${workItemId}`
   try {
     const { stdout } = await git(
-      ['branch', '--list', branchName],
+      ['branch', '--list', `${branchPrefix}/*`],
       { cwd: repoPath }
     )
-    if (stdout.trim()) {
+    // Also check the bare prefix (legacy branches without keywords)
+    const { stdout: legacyOut } = await git(
+      ['branch', '--list', branchPrefix],
+      { cwd: repoPath }
+    )
+    const existingBranch = (legacyOut.trim() || stdout.trim().split('\n')[0])?.trim().replace(/^\*\s*/, '')
+    if (existingBranch) {
       // Branch exists — check if it already has a worktree
       const worktrees = await listWorktrees(repoPath)
-      const existingWt = worktrees.find((wt) => wt.branch === branchName)
+      const existingWt = worktrees.find((wt) => wt.branch === existingBranch)
       if (existingWt) {
         console.log(
-          `[worktree] Worktree already exists for branch ${branchName} at ${existingWt.path}, reusing`
+          `[worktree] Worktree already exists for branch ${existingBranch} at ${existingWt.path}, reusing`
         )
         return existingWt.path
       }
       // Branch exists but no worktree — create a new numbered worktree for it
       const worktreePath = getNextWorktreePath(repoPath)
       console.log(
-        `[worktree] Branch ${branchName} exists, adding worktree at ${worktreePath}`
+        `[worktree] Branch ${existingBranch} exists, adding worktree at ${worktreePath}`
       )
-      await git(['worktree', 'add', worktreePath, branchName], {
+      await git(['worktree', 'add', worktreePath, existingBranch], {
         cwd: repoPath,
       })
       return worktreePath
@@ -231,6 +338,9 @@ export async function createWorktree(
   } catch {
     // Branch doesn't exist, which is fine — we'll create it
   }
+
+  // Generate a unique branch name with keywords from the title
+  const branchName = await getUniqueBranchName(repoPath, type, workItemId, title)
 
   // Create new worktree with new branch using next sequential number
   const worktreePath = getNextWorktreePath(repoPath)
@@ -258,7 +368,8 @@ export async function createTaskWorktree(
   repoPath: string,
   storyId: number,
   taskId: number,
-  defaultBranch: string
+  defaultBranch: string,
+  title?: string
 ): Promise<string> {
   const storyBranch = getBranchName('story', storyId)
 
@@ -270,7 +381,7 @@ export async function createTaskWorktree(
     )
     if (stdout.trim()) {
       // Branch from the story branch
-      return createWorktree(repoPath, 'task', taskId, defaultBranch, storyBranch)
+      return createWorktree(repoPath, 'task', taskId, defaultBranch, storyBranch, title)
     }
   } catch {
     // Story branch doesn't exist, fall back to default
@@ -280,7 +391,61 @@ export async function createTaskWorktree(
   console.warn(
     `[worktree] Story branch ${storyBranch} not found, using ${defaultBranch}`
   )
-  return createWorktree(repoPath, 'task', taskId, defaultBranch)
+  return createWorktree(repoPath, 'task', taskId, defaultBranch, undefined, title)
+}
+
+/**
+ * Repurposes an idle worktree for a new task.
+ *
+ * The worktree should already be in a detached HEAD state (from cleanup).
+ * This function:
+ * 1. Fetches the latest from origin
+ * 2. Creates a new branch based on the default branch
+ * 3. Checks out the new branch in the worktree
+ *
+ * @param worktreePath The path of the idle worktree to repurpose
+ * @param repoPath The main repo path (for fetching)
+ * @param type 'story' or 'task'
+ * @param workItemId The Azure DevOps work item ID
+ * @param defaultBranch The default branch to base the new branch on
+ * @returns The worktree path (same as input)
+ */
+export async function repurposeWorktree(
+  worktreePath: string,
+  repoPath: string,
+  type: 'story' | 'task',
+  workItemId: number,
+  defaultBranch: string,
+  title?: string
+): Promise<string> {
+  const base = `origin/${defaultBranch}`
+
+  // Fetch latest from origin
+  await git(['fetch', 'origin'], { cwd: repoPath })
+
+  // Generate a unique branch name with keywords
+  const branchName = await getUniqueBranchName(repoPath, type, workItemId, title)
+
+  // Create and check out new branch from origin/defaultBranch
+  await git(['checkout', '-b', branchName, base], { cwd: worktreePath })
+
+  return worktreePath
+}
+
+/**
+ * Gets the current branch name checked out in a worktree.
+ *
+ * @param worktreePath The worktree path to check
+ * @returns The branch name, or null if HEAD is detached
+ */
+export async function getCurrentBranch(worktreePath: string): Promise<string | null> {
+  try {
+    const { stdout } = await git(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: worktreePath })
+    const branch = stdout.trim()
+    return branch === 'HEAD' ? null : branch // 'HEAD' means detached
+  } catch {
+    return null
+  }
 }
 
 /**
