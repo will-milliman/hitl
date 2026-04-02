@@ -44,19 +44,14 @@ export default tseslint.config(
     },
   },
 
-  // Renderer-specific: add browser globals + React hooks
+  // Renderer-specific: add browser globals + React hooks (with compiler-powered rules)
   {
     files: ['src/renderer/**/*.{ts,tsx}'],
-    plugins: {
-      'react-hooks': reactHooks,
-    },
+    ...reactHooks.configs.flat.recommended,
     languageOptions: {
       globals: {
         ...globals.browser,
       },
-    },
-    rules: {
-      ...reactHooks.configs.recommended.rules,
     },
   },
 

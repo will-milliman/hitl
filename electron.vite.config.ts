@@ -26,7 +26,13 @@ export default defineConfig({
     },
   },
   renderer: {
-    plugins: [react()],
+    plugins: [
+      react({
+        babel: {
+          plugins: ['babel-plugin-react-compiler'],
+        },
+      }),
+    ],
     root: resolve(__dirname, 'src/renderer'),
     build: {
       outDir: resolve(__dirname, 'out/renderer'),
