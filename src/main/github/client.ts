@@ -78,6 +78,7 @@ function isRetryableGhError(error: unknown): boolean {
   if (msg.includes('authentication') || msg.includes('auth')) return false;
   if (msg.includes('not found') || msg.includes('404')) return false;
   if (msg.includes('already exists')) return false;
+  if (msg.includes('unknown flag')) return false;
   // Retry network/timeout/server errors
   return true;
 }
@@ -195,12 +196,11 @@ export async function createPullRequest(cwd: string, params: CreatePRParams): Pr
     args.push('--draft');
   }
 
-  args.push('--json', 'number,url,state,isDraft,title,headRefName,baseRefName,author');
+  // gh pr create outputs the PR URL on success (--json is not supported)
+  const prUrl = (await gh(args, cwd)).trim();
 
-  const output = await gh(args, cwd);
-
-  // gh pr create with --json returns JSON
-  return JSON.parse(output) as PullRequest;
+  // Fetch full PR details via gh pr view
+  return getPullRequestByUrl(prUrl, cwd);
 }
 
 /**
