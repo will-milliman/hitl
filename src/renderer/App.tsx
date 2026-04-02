@@ -19,7 +19,21 @@ import { theme } from './styles/theme';
 import { trpc } from './trpc/client';
 
 export function App() {
-  const [queryClient] = useState(() => new QueryClient());
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            // Disable automatic refetch on window focus — the app already uses
+            // explicit refetchInterval polling for data freshness. The default
+            // (true) causes all queries to refetch the moment the window regains
+            // focus, which re-renders grids and closes any open native <select>
+            // dropdowns mid-interaction.
+            refetchOnWindowFocus: false,
+          },
+        },
+      }),
+  );
   const [trpcClient] = useState(() =>
     trpc.createClient({
       links: [ipcLink()],
