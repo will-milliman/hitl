@@ -5,6 +5,7 @@ export {
   queryWiql,
   getWorkItems,
   workItemUrl,
+  updateWorkItemState,
   buildSprintTasksQuery,
   buildSprintStoriesQuery,
 } from './client';

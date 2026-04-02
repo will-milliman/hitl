@@ -5,6 +5,7 @@ import { join } from 'path';
 import { z } from 'zod';
 
 import { GRID_LABELS } from '../../shared/constants';
+import { updateWorkItemState } from '../azure';
 import { getActiveWatcherCount, openSessionInTerminal, startInteractiveSession } from '../copilot';
 import { getCronStatus } from '../cron';
 import { getAzureConfig } from '../cron/config';
@@ -93,6 +94,18 @@ export const appRouter = t.router({
     )
     .mutation(async ({ input }) => {
       const db = getDb();
+
+      // Move work item from New to Active in Azure DevOps
+      const azureConfig = getAzureConfig();
+      if (azureConfig) {
+        try {
+          await updateWorkItemState(azureConfig, input.taskId, 'Active');
+        } catch (err) {
+          console.error(`[router] Failed to update Azure DevOps state for task #${input.taskId}:`, err);
+          // Non-blocking: continue with local state transition even if Azure update fails
+        }
+      }
+
       return db.task.update({
         where: { id: input.taskId },
         data: {

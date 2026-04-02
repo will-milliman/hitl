@@ -166,6 +166,47 @@ export function workItemUrl(org: string, project: string, id: number): string {
 }
 
 /**
+ * Update the state of a work item in Azure DevOps.
+ *
+ * Uses the JSON Patch format required by the Work Items API.
+ * Common state transitions: 'New' -> 'Active', 'Active' -> 'Resolved', etc.
+ *
+ * Retries on transient failures.
+ */
+export async function updateWorkItemState(config: AzureConfig, workItemId: number, state: string): Promise<void> {
+  await withRetry(
+    async () => {
+      const url = `${baseUrl(config.org, config.project)}/wit/workitems/${workItemId}?api-version=7.1`;
+
+      const response = await fetch(url, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json-patch+json',
+          Authorization: authHeader(config.pat),
+        },
+        body: JSON.stringify([
+          {
+            op: 'replace',
+            path: '/fields/System.State',
+            value: state,
+          },
+        ]),
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`[azure] Work item state update failed (${response.status}): ${text}`);
+      }
+    },
+    {
+      label: `azure:updateWorkItemState(${workItemId} -> ${state})`,
+      maxAttempts: 3,
+      shouldRetry: isRetryableHttpError,
+    },
+  );
+}
+
+/**
  * WIQL query to find tasks and bugs in the current sprint assigned to the
  * current user that are new or active.
  *
