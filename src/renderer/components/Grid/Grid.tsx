@@ -1,15 +1,15 @@
-import React, { useState, useEffect, useRef } from "react";
 import {
-  useReactTable,
-  getCoreRowModel,
-  getSortedRowModel,
-  getGroupedRowModel,
-  flexRender,
   type ColumnDef,
-  type SortingState,
   type GroupingState,
-} from "@tanstack/react-table";
-import styled from "styled-components";
+  type SortingState,
+  flexRender,
+  getCoreRowModel,
+  getGroupedRowModel,
+  getSortedRowModel,
+  useReactTable,
+} from '@tanstack/react-table';
+import React, { useEffect, useRef, useState } from 'react';
+import styled from 'styled-components';
 
 const Section = styled.div`
   margin-bottom: ${({ theme }) => theme.spacing.md};
@@ -38,7 +38,7 @@ const Header = styled.button`
 const Chevron = styled.span<{ $expanded: boolean }>`
   display: inline-block;
   transition: transform 0.2s ease;
-  transform: rotate(${({ $expanded }) => ($expanded ? "90deg" : "0deg")});
+  transform: rotate(${({ $expanded }) => ($expanded ? '90deg' : '0deg')});
   font-size: 12px;
   color: ${({ theme }) => theme.colors.overlay1};
 `;
@@ -58,7 +58,7 @@ const Badge = styled.span`
 `;
 
 const TableWrapper = styled.div<{ $visible: boolean }>`
-  display: ${({ $visible }) => ($visible ? "block" : "none")};
+  display: ${({ $visible }) => ($visible ? 'block' : 'none')};
   border-left: 1px solid ${({ theme }) => theme.colors.surface0};
   border-right: 1px solid ${({ theme }) => theme.colors.surface0};
   overflow: hidden;
@@ -198,31 +198,19 @@ export function Grid<T>({
                       style={
                         (header.column.columnDef.meta as any)?.fixedWidth
                           ? {
-                              width: (header.column.columnDef.meta as any)
-                                .fixedWidth,
-                              maxWidth: (header.column.columnDef.meta as any)
-                                .fixedWidth,
+                              width: (header.column.columnDef.meta as any).fixedWidth,
+                              maxWidth: (header.column.columnDef.meta as any).fixedWidth,
                             }
                           : (header.column.columnDef.meta as any)?.shrink
                             ? {
-                                width: "1px",
-                                minWidth: (header.column.columnDef.meta as any)
-                                  .minWidth,
+                                width: '1px',
+                                minWidth: (header.column.columnDef.meta as any).minWidth,
                               }
                             : undefined
                       }
                     >
-                      {header.isPlaceholder
-                        ? null
-                        : flexRender(
-                            header.column.columnDef.header,
-                            header.getContext(),
-                          )}
-                      <SortIndicator>
-                        {{ asc: " ↑", desc: " ↓" }[
-                          header.column.getIsSorted() as string
-                        ] ?? ""}
-                      </SortIndicator>
+                      {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                      <SortIndicator>{{ asc: ' ↑', desc: ' ↓' }[header.column.getIsSorted() as string] ?? ''}</SortIndicator>
                     </Th>
                   ))}
                 </tr>
@@ -237,20 +225,15 @@ export function Grid<T>({
                       style={
                         (cell.column.columnDef.meta as any)?.fixedWidth
                           ? {
-                              width: (cell.column.columnDef.meta as any)
-                                .fixedWidth,
-                              maxWidth: (cell.column.columnDef.meta as any)
-                                .fixedWidth,
+                              width: (cell.column.columnDef.meta as any).fixedWidth,
+                              maxWidth: (cell.column.columnDef.meta as any).fixedWidth,
                             }
                           : (cell.column.columnDef.meta as any)?.shrink
-                            ? { width: "1px" }
+                            ? { width: '1px' }
                             : undefined
                       }
                     >
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext(),
-                      )}
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </Td>
                   ))}
                 </Tr>

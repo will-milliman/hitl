@@ -22,37 +22,31 @@
  *
  * All GitHub operations use the `gh` CLI (authenticated via `gh auth login`).
  */
+import { exec, execFile } from 'child_process';
+import { promisify } from 'util';
 
-import { exec, execFile } from 'child_process'
-import { promisify } from 'util'
-import { getDb } from '../db'
-import {
-  isGhAuthenticated,
-  createPullRequest,
-  findPullRequest,
-  getPullRequestByUrl,
-  isPrReadyToMerge,
-} from '../github'
-import { getBranchName, getCurrentBranch, listWorktrees } from '../worktree'
-import { loadProfiles } from '../settings'
-import { notifyTaskCompleted } from '../notifications'
-import { GridState } from '../../shared/constants'
-import { createLogger } from '../logger'
+import { GridState } from '../../shared/constants';
+import { getDb } from '../db';
+import { createPullRequest, findPullRequest, getPullRequestByUrl, isGhAuthenticated, isPrReadyToMerge } from '../github';
+import { createLogger } from '../logger';
+import { notifyTaskCompleted } from '../notifications';
+import { loadProfiles } from '../settings';
+import { getBranchName, getCurrentBranch, listWorktrees } from '../worktree';
 
-const logger = createLogger('pr-check')
-const execAsync = promisify(exec)
-const execFileAsync = promisify(execFile)
+const logger = createLogger('pr-check');
+const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 /**
  * Gets the default branch for a task's profile.
  */
 function getDefaultBranch(profileKey: string | null): string {
-  if (!profileKey) return 'main'
+  if (!profileKey) return 'main';
   try {
-    const profiles = loadProfiles()
-    return profiles[profileKey]?.defaultBranch ?? 'main'
+    const profiles = loadProfiles();
+    return profiles[profileKey]?.defaultBranch ?? 'main';
   } catch {
-    return 'main'
+    return 'main';
   }
 }
 
@@ -60,12 +54,12 @@ function getDefaultBranch(profileKey: string | null): string {
  * Pushes a branch to origin from a worktree.
  */
 async function pushBranch(worktreePath: string, branchName: string): Promise<void> {
-  logger.info(`Pushing ${branchName} from ${worktreePath}`)
+  logger.info(`Pushing ${branchName} from ${worktreePath}`);
   await execFileAsync('git', ['push', '-u', 'origin', branchName], {
     cwd: worktreePath,
     timeout: 60_000,
     windowsHide: true,
-  })
+  });
 }
 
 /**
@@ -78,7 +72,7 @@ async function pushBranch(worktreePath: string, branchName: string): Promise<voi
  * - Task has no prUrl yet
  */
 async function createDraftPRs(): Promise<void> {
-  const db = getDb()
+  const db = getDb();
 
   const tasks = await db.task.findMany({
     where: {
@@ -93,39 +87,37 @@ async function createDraftPRs(): Promise<void> {
         select: { id: true, title: true },
       },
     },
-  })
+  });
 
-  if (tasks.length === 0) return
+  if (tasks.length === 0) return;
 
-  logger.info(`Found ${tasks.length} tasks needing draft PRs`)
+  logger.info(`Found ${tasks.length} tasks needing draft PRs`);
 
   for (const task of tasks) {
     try {
-      const worktreePath = task.worktreePath!
-      const defaultBranch = getDefaultBranch(task.profileKey)
+      const worktreePath = task.worktreePath!;
+      const defaultBranch = getDefaultBranch(task.profileKey);
 
       // Get the actual branch name from the worktree (may include keywords)
-      const taskBranch = await getCurrentBranch(worktreePath)
+      const taskBranch = await getCurrentBranch(worktreePath);
       if (!taskBranch) {
-        logger.warn(`Task #${task.id}: worktree has no branch (detached HEAD), skipping PR`)
-        continue
+        logger.warn(`Task #${task.id}: worktree has no branch (detached HEAD), skipping PR`);
+        continue;
       }
 
       // Push the task branch
-      await pushBranch(worktreePath, taskBranch)
+      await pushBranch(worktreePath, taskBranch);
 
       // Check if a PR already exists (maybe created by copilot or manually)
-      const existing = await findPullRequest(worktreePath, taskBranch, defaultBranch)
+      const existing = await findPullRequest(worktreePath, taskBranch, defaultBranch);
 
-      let prUrl: string
+      let prUrl: string;
       if (existing) {
-        logger.info(`PR already exists for task #${task.id}: ${existing.url}`)
-        prUrl = existing.url
+        logger.info(`PR already exists for task #${task.id}: ${existing.url}`);
+        prUrl = existing.url;
       } else {
         // Create a draft PR targeting the default branch
-        const storyContext = task.story
-          ? `\n**Story**: #${task.story.id} — ${task.story.title}\n`
-          : ''
+        const storyContext = task.story ? `\n**Story**: #${task.story.id} — ${task.story.title}\n` : '';
 
         const pr = await createPullRequest(worktreePath, {
           title: `Task #${task.id}: ${task.title}`,
@@ -142,20 +134,20 @@ async function createDraftPRs(): Promise<void> {
           head: taskBranch,
           base: defaultBranch,
           draft: true,
-        })
+        });
 
-        prUrl = pr.url
-        logger.info(`Created draft PR for task #${task.id}: ${prUrl}`)
+        prUrl = pr.url;
+        logger.info(`Created draft PR for task #${task.id}: ${prUrl}`);
       }
 
       // Save PR URL to database
       await db.task.update({
         where: { id: task.id },
         data: { prUrl },
-      })
+      });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      logger.error(`Failed to create draft PR for task #${task.id}: ${message}`)
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error(`Failed to create draft PR for task #${task.id}: ${message}`);
     }
   }
 }
@@ -168,37 +160,37 @@ async function createDraftPRs(): Promise<void> {
  * a draft), moves the task to PR_REVIEW.
  */
 async function checkDraftToReady(): Promise<void> {
-  const db = getDb()
+  const db = getDb();
 
   const tasks = await db.task.findMany({
     where: {
       state: GridState.TASK_EXECUTION,
       prUrl: { not: null },
     },
-  })
+  });
 
-  if (tasks.length === 0) return
+  if (tasks.length === 0) return;
 
-  logger.info(`Checking draft status for ${tasks.length} task PRs`)
+  logger.info(`Checking draft status for ${tasks.length} task PRs`);
 
   for (const task of tasks) {
     try {
-      const prUrl = task.prUrl!
-      const worktreePath = task.worktreePath!
+      const prUrl = task.prUrl!;
+      const worktreePath = task.worktreePath!;
 
-      const pr = await getPullRequestByUrl(prUrl, worktreePath)
+      const pr = await getPullRequestByUrl(prUrl, worktreePath);
 
       if (!pr.isDraft) {
-        logger.info(`Task #${task.id} PR is no longer a draft — moving to PR_REVIEW`)
+        logger.info(`Task #${task.id} PR is no longer a draft — moving to PR_REVIEW`);
 
         await db.task.update({
           where: { id: task.id },
           data: { state: GridState.PR_REVIEW },
-        })
+        });
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      logger.error(`Failed to check draft status for task #${task.id}: ${message}`)
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error(`Failed to check draft status for task #${task.id}: ${message}`);
     }
   }
 }
@@ -217,8 +209,8 @@ async function checkDraftToReady(): Promise<void> {
  * do not prevent the task from completing.
  */
 async function closeVirtualDesktop(taskId: number): Promise<void> {
-  const desktopName = `Task #${taskId}`
-  const safeName = desktopName.replace(/'/g, "''")
+  const desktopName = `Task #${taskId}`;
+  const safeName = desktopName.replace(/'/g, "''");
 
   // PowerShell script that:
   // 1. Defines a Win32 helper to send WM_CLOSE to window handles
@@ -238,14 +230,11 @@ async function closeVirtualDesktop(taskId: number): Promise<void> {
     `  Start-Sleep -Milliseconds 1000`,
     `  $desktop | Remove-Desktop`,
     `}`,
-  ].join('; ')
+  ].join('; ');
 
-  logger.info(`Closing virtual desktop "${desktopName}"`)
+  logger.info(`Closing virtual desktop "${desktopName}"`);
 
-  await execAsync(
-    `powershell -NoProfile -ExecutionPolicy Bypass -Command "${ps1}"`,
-    { windowsHide: true, timeout: 15_000 }
-  )
+  await execAsync(`powershell -NoProfile -ExecutionPolicy Bypass -Command "${ps1}"`, { windowsHide: true, timeout: 15_000 });
 }
 
 /**
@@ -263,7 +252,7 @@ async function closeVirtualDesktop(taskId: number): Promise<void> {
  * the state change has already been committed before this is called.
  */
 async function cleanupCompletedTask(taskId: number, worktreePath: string | null): Promise<void> {
-  const db = getDb()
+  const db = getDb();
 
   // Detach the git branch so the worktree can be reused with a new branch.
   // Must happen before clearing the DB fields (we need worktreePath).
@@ -273,11 +262,11 @@ async function cleanupCompletedTask(taskId: number, worktreePath: string | null)
         cwd: worktreePath,
         timeout: 15_000,
         windowsHide: true,
-      })
-      logger.info(`Task #${taskId}: branch detached in worktree`)
+      });
+      logger.info(`Task #${taskId}: branch detached in worktree`);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      logger.error(`Task #${taskId}: failed to detach branch: ${message}`)
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error(`Task #${taskId}: failed to detach branch: ${message}`);
     }
   }
 
@@ -286,21 +275,21 @@ async function cleanupCompletedTask(taskId: number, worktreePath: string | null)
     await db.task.update({
       where: { id: taskId },
       data: { worktreePath: null, sessionId: null },
-    })
-    logger.info(`Task #${taskId}: worktree parked (detached from task)`)
+    });
+    logger.info(`Task #${taskId}: worktree parked (detached from task)`);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    logger.error(`Task #${taskId}: failed to park worktree: ${message}`)
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error(`Task #${taskId}: failed to park worktree: ${message}`);
   }
 
   // Close virtual desktop and its windows
   try {
-    await closeVirtualDesktop(taskId)
-    logger.info(`Task #${taskId}: virtual desktop closed`)
+    await closeVirtualDesktop(taskId);
+    logger.info(`Task #${taskId}: virtual desktop closed`);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
+    const message = err instanceof Error ? err.message : String(err);
     // This is expected when no virtual desktop was opened for the task
-    logger.debug(`Task #${taskId}: virtual desktop cleanup skipped: ${message}`)
+    logger.debug(`Task #${taskId}: virtual desktop cleanup skipped: ${message}`);
   }
 }
 
@@ -312,7 +301,7 @@ async function cleanupCompletedTask(taskId: number, worktreePath: string | null)
  * the PR is NOT ready to merge yet, and enabled when it IS ready.
  */
 async function updatePrReadiness(): Promise<void> {
-  const db = getDb()
+  const db = getDb();
 
   const tasks = await db.task.findMany({
     where: {
@@ -320,36 +309,36 @@ async function updatePrReadiness(): Promise<void> {
       prUrl: { not: null },
       prMerged: false,
     },
-  })
+  });
 
-  if (tasks.length === 0) return
+  if (tasks.length === 0) return;
 
   for (const task of tasks) {
     try {
-      const prUrl = task.prUrl!
-      const worktreePath = task.worktreePath!
+      const prUrl = task.prUrl!;
+      const worktreePath = task.worktreePath!;
 
-      const pr = await getPullRequestByUrl(prUrl, worktreePath)
+      const pr = await getPullRequestByUrl(prUrl, worktreePath);
 
       // Skip merged/closed PRs (handled by checkTaskPRMerges)
-      if (pr.state === 'MERGED' || pr.state === 'CLOSED') continue
+      if (pr.state === 'MERGED' || pr.state === 'CLOSED') continue;
 
-      const ready = isPrReadyToMerge(pr)
-      const shouldBeDisabled = !ready
+      const ready = isPrReadyToMerge(pr);
+      const shouldBeDisabled = !ready;
 
       // Only update if the disabled state needs to change
       if (task.disabled !== shouldBeDisabled) {
         logger.info(
-          `Task #${task.id} PR ${ready ? 'is ready to merge' : 'is not ready to merge'} — ${shouldBeDisabled ? 'disabling' : 'enabling'}`
-        )
+          `Task #${task.id} PR ${ready ? 'is ready to merge' : 'is not ready to merge'} — ${shouldBeDisabled ? 'disabling' : 'enabling'}`,
+        );
         await db.task.update({
           where: { id: task.id },
           data: { disabled: shouldBeDisabled },
-        })
+        });
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      logger.error(`Failed to check PR readiness for task #${task.id}: ${message}`)
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error(`Failed to check PR readiness for task #${task.id}: ${message}`);
     }
   }
 }
@@ -362,7 +351,7 @@ async function updatePrReadiness(): Promise<void> {
  * If closed (without merge): moves the task to ABANDONED state.
  */
 async function checkTaskPRMerges(): Promise<void> {
-  const db = getDb()
+  const db = getDb();
 
   const tasks = await db.task.findMany({
     where: {
@@ -370,22 +359,22 @@ async function checkTaskPRMerges(): Promise<void> {
       prUrl: { not: null },
       prMerged: false,
     },
-  })
+  });
 
-  if (tasks.length === 0) return
+  if (tasks.length === 0) return;
 
-  logger.info(`Checking merge status for ${tasks.length} task PRs`)
+  logger.info(`Checking merge status for ${tasks.length} task PRs`);
 
   for (const task of tasks) {
     try {
-      const prUrl = task.prUrl!
-      const worktreePath = task.worktreePath!
+      const prUrl = task.prUrl!;
+      const worktreePath = task.worktreePath!;
 
       // Get the PR state via gh pr view
-      const pr = await getPullRequestByUrl(prUrl, worktreePath)
+      const pr = await getPullRequestByUrl(prUrl, worktreePath);
 
       if (pr.state === 'MERGED') {
-        logger.info(`Task #${task.id} PR has been merged — moving to COMPLETED`)
+        logger.info(`Task #${task.id} PR has been merged — moving to COMPLETED`);
 
         await db.task.update({
           where: { id: task.id },
@@ -395,16 +384,16 @@ async function checkTaskPRMerges(): Promise<void> {
             disabled: true,
             completedAt: new Date(),
           },
-        })
+        });
 
-        notifyTaskCompleted(task.id, task.title)
+        notifyTaskCompleted(task.id, task.title);
 
         // Clean up resources (detach branch, park worktree, close virtual desktop)
         // Runs after the state transition is committed — failures won't
         // prevent the task from being marked as completed.
-        await cleanupCompletedTask(task.id, task.worktreePath)
+        await cleanupCompletedTask(task.id, task.worktreePath);
       } else if (pr.state === 'CLOSED') {
-        logger.info(`Task #${task.id} PR has been closed — moving to ABANDONED`)
+        logger.info(`Task #${task.id} PR has been closed — moving to ABANDONED`);
 
         await db.task.update({
           where: { id: task.id },
@@ -412,16 +401,14 @@ async function checkTaskPRMerges(): Promise<void> {
             state: GridState.ABANDONED,
             disabled: true,
           },
-        })
+        });
 
         // Clean up resources (detach branch, park worktree, close virtual desktop)
-        await cleanupCompletedTask(task.id, task.worktreePath)
+        await cleanupCompletedTask(task.id, task.worktreePath);
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      logger.error(
-        `Failed to check merge for task #${task.id}: ${message}`
-      )
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error(`Failed to check merge for task #${task.id}: ${message}`);
     }
   }
 }
@@ -431,14 +418,14 @@ async function checkTaskPRMerges(): Promise<void> {
  */
 export async function runPrCheckStep(): Promise<void> {
   // Check gh CLI auth before doing anything
-  const authenticated = await isGhAuthenticated()
+  const authenticated = await isGhAuthenticated();
   if (!authenticated) {
-    logger.info('gh CLI not authenticated, skipping PR check step')
-    return
+    logger.info('gh CLI not authenticated, skipping PR check step');
+    return;
   }
 
-  await createDraftPRs()
-  await checkDraftToReady()
-  await updatePrReadiness()
-  await checkTaskPRMerges()
+  await createDraftPRs();
+  await checkDraftToReady();
+  await updatePrReadiness();
+  await checkTaskPRMerges();
 }

@@ -11,46 +11,45 @@
  * All API calls use retry logic with exponential backoff for
  * transient failures (network errors, 429/5xx responses).
  */
+import { createLogger } from '../logger';
+import { isRetryableHttpError, withRetry } from '../utils/retry';
 
-import { withRetry, isRetryableHttpError } from '../utils/retry'
-import { createLogger } from '../logger'
-
-const logger = createLogger('azure')
+const logger = createLogger('azure');
 
 export interface AzureConfig {
-  org: string
-  project: string
-  pat: string
-  teamId?: string // optional, used for @CurrentIteration team scope
+  org: string;
+  project: string;
+  pat: string;
+  teamId?: string; // optional, used for @CurrentIteration team scope
 }
 
 export interface WiqlResult {
-  workItems: Array<{ id: number; url: string }>
+  workItems: Array<{ id: number; url: string }>;
 }
 
 export interface WorkItemFields {
-  'System.Id': number
-  'System.Title': string
-  'System.WorkItemType': string
-  'System.State': string
+  'System.Id': number;
+  'System.Title': string;
+  'System.WorkItemType': string;
+  'System.State': string;
   'System.AssignedTo'?: {
-    displayName: string
-    uniqueName: string
-  }
-  'System.IterationPath'?: string
-  'System.Parent'?: number
-  [key: string]: unknown
+    displayName: string;
+    uniqueName: string;
+  };
+  'System.IterationPath'?: string;
+  'System.Parent'?: number;
+  [key: string]: unknown;
 }
 
 export interface WorkItem {
-  id: number
-  fields: WorkItemFields
-  url: string
+  id: number;
+  fields: WorkItemFields;
+  url: string;
 }
 
 export interface WorkItemBatchResult {
-  count: number
-  value: WorkItem[]
+  count: number;
+  value: WorkItem[];
 }
 
 /**
@@ -58,8 +57,8 @@ export interface WorkItemBatchResult {
  * PAT auth uses Basic with empty username.
  */
 function authHeader(pat: string): string {
-  const encoded = Buffer.from(`:${pat}`).toString('base64')
-  return `Basic ${encoded}`
+  const encoded = Buffer.from(`:${pat}`).toString('base64');
+  return `Basic ${encoded}`;
 }
 
 /**
@@ -70,8 +69,8 @@ function authHeader(pat: string): string {
  *   With team:    https://dev.azure.com/{org}/{project}/{team}/_apis/...
  */
 function baseUrl(org: string, project: string, team?: string): string {
-  const teamSegment = team ? `/${encodeURIComponent(team)}` : ''
-  return `https://dev.azure.com/${org}/${project}${teamSegment}/_apis`
+  const teamSegment = team ? `/${encodeURIComponent(team)}` : '';
+  return `https://dev.azure.com/${org}/${project}${teamSegment}/_apis`;
 }
 
 /**
@@ -79,13 +78,10 @@ function baseUrl(org: string, project: string, team?: string): string {
  * Returns a flat list of work item IDs and URLs.
  * Retries on transient failures.
  */
-export async function queryWiql(
-  config: AzureConfig,
-  wiql: string
-): Promise<WiqlResult> {
+export async function queryWiql(config: AzureConfig, wiql: string): Promise<WiqlResult> {
   return withRetry(
     async () => {
-      const url = `${baseUrl(config.org, config.project, config.teamId)}/wit/wiql?api-version=7.1`
+      const url = `${baseUrl(config.org, config.project, config.teamId)}/wit/wiql?api-version=7.1`;
 
       const response = await fetch(url, {
         method: 'POST',
@@ -94,23 +90,21 @@ export async function queryWiql(
           Authorization: authHeader(config.pat),
         },
         body: JSON.stringify({ query: wiql }),
-      })
+      });
 
       if (!response.ok) {
-        const text = await response.text()
-        throw new Error(
-          `[azure] WIQL query failed (${response.status}): ${text}`
-        )
+        const text = await response.text();
+        throw new Error(`[azure] WIQL query failed (${response.status}): ${text}`);
       }
 
-      return response.json() as Promise<WiqlResult>
+      return response.json() as Promise<WiqlResult>;
     },
     {
       label: 'azure:queryWiql',
       maxAttempts: 3,
       shouldRetry: isRetryableHttpError,
-    }
-  )
+    },
+  );
 }
 
 /**
@@ -118,66 +112,60 @@ export async function queryWiql(
  * Returns full work item objects with fields.
  * Retries each batch on transient failures.
  */
-export async function getWorkItems(
-  config: AzureConfig,
-  ids: number[],
-  fields?: string[]
-): Promise<WorkItem[]> {
-  if (ids.length === 0) return []
+export async function getWorkItems(config: AzureConfig, ids: number[], fields?: string[]): Promise<WorkItem[]> {
+  if (ids.length === 0) return [];
 
-  const allItems: WorkItem[] = []
+  const allItems: WorkItem[] = [];
 
   // Batch in chunks of 200 (API limit)
   for (let i = 0; i < ids.length; i += 200) {
-    const chunk = ids.slice(i, i + 200)
+    const chunk = ids.slice(i, i + 200);
 
     const items = await withRetry(
       async () => {
         const params = new URLSearchParams({
           ids: chunk.join(','),
           'api-version': '7.1',
-        })
+        });
 
         if (fields?.length) {
-          params.set('fields', fields.join(','))
+          params.set('fields', fields.join(','));
         }
 
-        const url = `${baseUrl(config.org, config.project)}/wit/workitems?${params}`
+        const url = `${baseUrl(config.org, config.project)}/wit/workitems?${params}`;
 
         const response = await fetch(url, {
           headers: {
             Authorization: authHeader(config.pat),
           },
-        })
+        });
 
         if (!response.ok) {
-          const text = await response.text()
-          throw new Error(
-            `[azure] Work items fetch failed (${response.status}): ${text}`
-          )
+          const text = await response.text();
+          throw new Error(`[azure] Work items fetch failed (${response.status}): ${text}`);
         }
 
-        const result = (await response.json()) as WorkItemBatchResult
-        return result.value
+        const result = (await response.json()) as WorkItemBatchResult;
+        return result.value;
       },
       {
         label: `azure:getWorkItems(batch ${i / 200 + 1})`,
         maxAttempts: 3,
         shouldRetry: isRetryableHttpError,
-      }
-    )
+      },
+    );
 
-    allItems.push(...items)
+    allItems.push(...items);
   }
 
-  return allItems
+  return allItems;
 }
 
 /**
  * Build the Azure DevOps work item URL for a given ID.
  */
 export function workItemUrl(org: string, project: string, id: number): string {
-  return `https://dev.azure.com/${org}/${project}/_workitems/edit/${id}`
+  return `https://dev.azure.com/${org}/${project}/_workitems/edit/${id}`;
 }
 
 /**
@@ -197,7 +185,7 @@ export function buildSprintTasksQuery(): string {
       AND [System.State] IN ('New', 'Active')
       AND [System.AssignedTo] = @Me
     ORDER BY [System.Id]
-  `.trim()
+  `.trim();
 }
 
 /**
@@ -213,5 +201,5 @@ export function buildSprintStoriesQuery(): string {
       AND [System.IterationPath] = @CurrentIteration
       AND [System.AssignedTo] = @Me
     ORDER BY [System.Id]
-  `.trim()
+  `.trim();
 }

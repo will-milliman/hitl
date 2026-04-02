@@ -5,8 +5,19 @@
  * Validates that setupTaskWorktrees() correctly creates worktrees for eligible
  * tasks and persists the worktreePath in the DB.
  */
+import type { PrismaClient } from '@prisma/client';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { describe, it, expect, vi, beforeAll, afterAll, afterEach } from 'vitest'
+import { GridState } from '../../shared/constants';
+import { loadProfiles } from '../settings';
+// ─── Real DB setup ─────────────────────────────────────────
+
+import { getTestDb, resetTestDb, setupTestDb, teardownTestDb } from '../test-utils/db';
+import { createWorktree, findIdleWorktree, repurposeWorktree } from '../worktree';
+
+// ─── Imports (after mocks) ─────────────────────────────────
+
+import { setupTaskWorktrees } from './worktree-setup';
 
 // ─── Module mocks — external services only ─────────────────
 
@@ -17,13 +28,13 @@ vi.mock('../logger', () => ({
     warn: vi.fn(),
     error: vi.fn(),
   }),
-}))
+}));
 
 vi.mock('../worktree', () => ({
   createWorktree: vi.fn().mockResolvedValue('C:/repos/test-repo-worktrees/test-repo-1'),
   findIdleWorktree: vi.fn().mockResolvedValue(null),
   repurposeWorktree: vi.fn().mockResolvedValue('C:/repos/test-repo-worktrees/test-repo-1'),
-}))
+}));
 
 vi.mock('../settings', () => ({
   loadProfiles: vi.fn().mockReturnValue({
@@ -33,40 +44,28 @@ vi.mock('../settings', () => ({
       description: 'Test profile',
     },
   }),
-}))
+}));
 
-// ─── Real DB setup ─────────────────────────────────────────
-
-import { setupTestDb, resetTestDb, teardownTestDb, getTestDb } from '../test-utils/db'
-import type { PrismaClient } from '@prisma/client'
-
-let db: PrismaClient
+let db: PrismaClient;
 
 vi.mock('../db', () => ({
   getDb: vi.fn(() => db),
-}))
-
-// ─── Imports (after mocks) ─────────────────────────────────
-
-import { setupTaskWorktrees } from './worktree-setup'
-import { createWorktree, findIdleWorktree, repurposeWorktree } from '../worktree'
-import { loadProfiles } from '../settings'
-import { GridState } from '../../shared/constants'
+}));
 
 // ─── Lifecycle ─────────────────────────────────────────────
 
 beforeAll(async () => {
-  db = await setupTestDb()
-}, 30_000)
+  db = await setupTestDb();
+}, 30_000);
 
 afterEach(async () => {
-  await resetTestDb()
-  vi.clearAllMocks()
-})
+  await resetTestDb();
+  vi.clearAllMocks();
+});
 
 afterAll(async () => {
-  await teardownTestDb()
-}, 10_000)
+  await teardownTestDb();
+}, 10_000);
 
 // ─── Tests ─────────────────────────────────────────────────
 
@@ -83,24 +82,19 @@ describe('setupTaskWorktrees (integration)', () => {
         worktreePath: null,
         disabled: true,
       },
-    })
+    });
 
-    vi.mocked(createWorktree).mockResolvedValueOnce('C:/repos/test-repo-worktrees/task-7001')
+    vi.mocked(createWorktree).mockResolvedValueOnce('C:/repos/test-repo-worktrees/task-7001');
 
-    await setupTaskWorktrees()
+    await setupTaskWorktrees();
 
     // Verify worktree was created with correct args
-    expect(createWorktree).toHaveBeenCalledWith(
-      'C:/repos/test-repo',
-      'task',
-      7001,
-      'main'
-    )
+    expect(createWorktree).toHaveBeenCalledWith('C:/repos/test-repo', 'task', 7001, 'main');
 
     // Verify DB was updated with worktree path
-    const task = await db.task.findUnique({ where: { id: 7001 } })
-    expect(task!.worktreePath).toBe('C:/repos/test-repo-worktrees/task-7001')
-  })
+    const task = await db.task.findUnique({ where: { id: 7001 } });
+    expect(task!.worktreePath).toBe('C:/repos/test-repo-worktrees/task-7001');
+  });
 
   it('skips tasks that already have a worktree path', async () => {
     await db.task.create({
@@ -113,12 +107,12 @@ describe('setupTaskWorktrees (integration)', () => {
         worktreePath: 'C:/existing/worktree',
         disabled: true,
       },
-    })
+    });
 
-    await setupTaskWorktrees()
+    await setupTaskWorktrees();
 
-    expect(createWorktree).not.toHaveBeenCalled()
-  })
+    expect(createWorktree).not.toHaveBeenCalled();
+  });
 
   it('skips tasks without a profile assigned', async () => {
     await db.task.create({
@@ -131,12 +125,12 @@ describe('setupTaskWorktrees (integration)', () => {
         worktreePath: null,
         disabled: true,
       },
-    })
+    });
 
-    await setupTaskWorktrees()
+    await setupTaskWorktrees();
 
-    expect(createWorktree).not.toHaveBeenCalled()
-  })
+    expect(createWorktree).not.toHaveBeenCalled();
+  });
 
   it('skips tasks that are not disabled (not ready for execution)', async () => {
     await db.task.create({
@@ -149,12 +143,12 @@ describe('setupTaskWorktrees (integration)', () => {
         worktreePath: null,
         disabled: false,
       },
-    })
+    });
 
-    await setupTaskWorktrees()
+    await setupTaskWorktrees();
 
-    expect(createWorktree).not.toHaveBeenCalled()
-  })
+    expect(createWorktree).not.toHaveBeenCalled();
+  });
 
   it('skips tasks not in TASK_EXECUTION state', async () => {
     await db.task.create({
@@ -167,12 +161,12 @@ describe('setupTaskWorktrees (integration)', () => {
         worktreePath: null,
         disabled: true,
       },
-    })
+    });
 
-    await setupTaskWorktrees()
+    await setupTaskWorktrees();
 
-    expect(createWorktree).not.toHaveBeenCalled()
-  })
+    expect(createWorktree).not.toHaveBeenCalled();
+  });
 
   it('skips tasks with unknown profile key', async () => {
     await db.task.create({
@@ -185,17 +179,17 @@ describe('setupTaskWorktrees (integration)', () => {
         worktreePath: null,
         disabled: true,
       },
-    })
+    });
 
-    await setupTaskWorktrees()
+    await setupTaskWorktrees();
 
     // createWorktree should NOT be called (profile not found)
-    expect(createWorktree).not.toHaveBeenCalled()
+    expect(createWorktree).not.toHaveBeenCalled();
 
     // Task should remain unchanged
-    const task = await db.task.findUnique({ where: { id: 7006 } })
-    expect(task!.worktreePath).toBeNull()
-  })
+    const task = await db.task.findUnique({ where: { id: 7006 } });
+    expect(task!.worktreePath).toBeNull();
+  });
 
   it('processes multiple eligible tasks', async () => {
     await db.task.create({
@@ -208,7 +202,7 @@ describe('setupTaskWorktrees (integration)', () => {
         worktreePath: null,
         disabled: true,
       },
-    })
+    });
     await db.task.create({
       data: {
         id: 7011,
@@ -219,21 +213,19 @@ describe('setupTaskWorktrees (integration)', () => {
         worktreePath: null,
         disabled: true,
       },
-    })
+    });
 
-    vi.mocked(createWorktree)
-      .mockResolvedValueOnce('C:/repos/wt/task-7010')
-      .mockResolvedValueOnce('C:/repos/wt/task-7011')
+    vi.mocked(createWorktree).mockResolvedValueOnce('C:/repos/wt/task-7010').mockResolvedValueOnce('C:/repos/wt/task-7011');
 
-    await setupTaskWorktrees()
+    await setupTaskWorktrees();
 
-    expect(createWorktree).toHaveBeenCalledTimes(2)
+    expect(createWorktree).toHaveBeenCalledTimes(2);
 
-    const taskA = await db.task.findUnique({ where: { id: 7010 } })
-    const taskB = await db.task.findUnique({ where: { id: 7011 } })
-    expect(taskA!.worktreePath).toBe('C:/repos/wt/task-7010')
-    expect(taskB!.worktreePath).toBe('C:/repos/wt/task-7011')
-  })
+    const taskA = await db.task.findUnique({ where: { id: 7010 } });
+    const taskB = await db.task.findUnique({ where: { id: 7011 } });
+    expect(taskA!.worktreePath).toBe('C:/repos/wt/task-7010');
+    expect(taskB!.worktreePath).toBe('C:/repos/wt/task-7011');
+  });
 
   it('continues processing other tasks when one fails', async () => {
     await db.task.create({
@@ -246,7 +238,7 @@ describe('setupTaskWorktrees (integration)', () => {
         worktreePath: null,
         disabled: true,
       },
-    })
+    });
     await db.task.create({
       data: {
         id: 7021,
@@ -257,22 +249,22 @@ describe('setupTaskWorktrees (integration)', () => {
         worktreePath: null,
         disabled: true,
       },
-    })
+    });
 
     vi.mocked(createWorktree)
       .mockRejectedValueOnce(new Error('git worktree add failed'))
-      .mockResolvedValueOnce('C:/repos/wt/task-7021')
+      .mockResolvedValueOnce('C:/repos/wt/task-7021');
 
-    await setupTaskWorktrees()
+    await setupTaskWorktrees();
 
     // First task should still have no worktree (failed)
-    const failedTask = await db.task.findUnique({ where: { id: 7020 } })
-    expect(failedTask!.worktreePath).toBeNull()
+    const failedTask = await db.task.findUnique({ where: { id: 7020 } });
+    expect(failedTask!.worktreePath).toBeNull();
 
     // Second task should succeed
-    const successTask = await db.task.findUnique({ where: { id: 7021 } })
-    expect(successTask!.worktreePath).toBe('C:/repos/wt/task-7021')
-  })
+    const successTask = await db.task.findUnique({ where: { id: 7021 } });
+    expect(successTask!.worktreePath).toBe('C:/repos/wt/task-7021');
+  });
 
   it('reuses an idle worktree instead of creating a new one', async () => {
     // A completed task that has a parked worktree (worktreePath is null in DB,
@@ -287,19 +279,17 @@ describe('setupTaskWorktrees (integration)', () => {
         worktreePath: null,
         disabled: true,
       },
-    })
+    });
 
     vi.mocked(findIdleWorktree).mockResolvedValueOnce({
       path: 'C:/repos/test-repo-worktrees/test-repo-1',
       head: 'abc123',
       branch: null, // detached
       bare: false,
-    })
-    vi.mocked(repurposeWorktree).mockResolvedValueOnce(
-      'C:/repos/test-repo-worktrees/test-repo-1'
-    )
+    });
+    vi.mocked(repurposeWorktree).mockResolvedValueOnce('C:/repos/test-repo-worktrees/test-repo-1');
 
-    await setupTaskWorktrees()
+    await setupTaskWorktrees();
 
     // Should repurpose, not create
     expect(repurposeWorktree).toHaveBeenCalledWith(
@@ -307,14 +297,14 @@ describe('setupTaskWorktrees (integration)', () => {
       'C:/repos/test-repo',
       'task',
       7030,
-      'main'
-    )
-    expect(createWorktree).not.toHaveBeenCalled()
+      'main',
+    );
+    expect(createWorktree).not.toHaveBeenCalled();
 
     // Verify DB was updated
-    const task = await db.task.findUnique({ where: { id: 7030 } })
-    expect(task!.worktreePath).toBe('C:/repos/test-repo-worktrees/test-repo-1')
-  })
+    const task = await db.task.findUnique({ where: { id: 7030 } });
+    expect(task!.worktreePath).toBe('C:/repos/test-repo-worktrees/test-repo-1');
+  });
 
   it('falls back to creating new worktree when repurpose fails', async () => {
     await db.task.create({
@@ -327,32 +317,23 @@ describe('setupTaskWorktrees (integration)', () => {
         worktreePath: null,
         disabled: true,
       },
-    })
+    });
 
     vi.mocked(findIdleWorktree).mockResolvedValueOnce({
       path: 'C:/repos/test-repo-worktrees/test-repo-1',
       head: 'abc123',
       branch: null,
       bare: false,
-    })
-    vi.mocked(repurposeWorktree).mockRejectedValueOnce(
-      new Error('git checkout failed')
-    )
-    vi.mocked(createWorktree).mockResolvedValueOnce(
-      'C:/repos/test-repo-worktrees/test-repo-2'
-    )
+    });
+    vi.mocked(repurposeWorktree).mockRejectedValueOnce(new Error('git checkout failed'));
+    vi.mocked(createWorktree).mockResolvedValueOnce('C:/repos/test-repo-worktrees/test-repo-2');
 
-    await setupTaskWorktrees()
+    await setupTaskWorktrees();
 
     // Should have fallen back to createWorktree
-    expect(createWorktree).toHaveBeenCalledWith(
-      'C:/repos/test-repo',
-      'task',
-      7031,
-      'main'
-    )
+    expect(createWorktree).toHaveBeenCalledWith('C:/repos/test-repo', 'task', 7031, 'main');
 
-    const task = await db.task.findUnique({ where: { id: 7031 } })
-    expect(task!.worktreePath).toBe('C:/repos/test-repo-worktrees/test-repo-2')
-  })
-})
+    const task = await db.task.findUnique({ where: { id: 7031 } });
+    expect(task!.worktreePath).toBe('C:/repos/test-repo-worktrees/test-repo-2');
+  });
+});

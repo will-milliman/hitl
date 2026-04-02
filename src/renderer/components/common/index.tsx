@@ -1,6 +1,7 @@
-import React from "react";
-import styled from "styled-components";
-import { trpc } from "../../trpc/client";
+import React from 'react';
+import styled from 'styled-components';
+
+import { trpc } from '../../trpc/client';
 
 const StyledLink = styled.a`
   color: ${({ theme }) => theme.colors.blue};
@@ -53,7 +54,7 @@ export const StyledCheckbox = styled.input`
   }
 
   &:checked::after {
-    content: "";
+    content: '';
     position: absolute;
     left: 4px;
     top: 1px;
@@ -113,7 +114,7 @@ export function ActionLink({ onClick, children, title }: ActionLinkProps) {
 }
 
 /** Placeholder text for empty cells */
-export function Placeholder({ text = "--" }: { text?: string }) {
+export function Placeholder({ text = '--' }: { text?: string }) {
   return <PlaceholderText>{text}</PlaceholderText>;
 }
 
@@ -123,16 +124,9 @@ interface ProfileSelectProps {
   onChange: (value: string) => void;
 }
 
-export function ProfileSelect({
-  profiles,
-  value,
-  onChange,
-}: ProfileSelectProps) {
+export function ProfileSelect({ profiles, value, onChange }: ProfileSelectProps) {
   return (
-    <StyledSelect
-      value={value || ""}
-      onChange={(e) => onChange(e.target.value)}
-    >
+    <StyledSelect value={value || ''} onChange={(e) => onChange(e.target.value)}>
       <option value="">-- Select Profile --</option>
       {profiles.map((p) => (
         <option key={p} value={p}>
@@ -167,14 +161,7 @@ interface CheckboxCellProps {
 }
 
 export function CheckboxCell({ checked, disabled }: CheckboxCellProps) {
-  return (
-    <StyledCheckbox
-      type="checkbox"
-      checked={checked}
-      disabled={disabled}
-      readOnly
-    />
-  );
+  return <StyledCheckbox type="checkbox" checked={checked} disabled={disabled} readOnly />;
 }
 
 /** Error indicator dot for grid rows */
@@ -221,7 +208,7 @@ const IndicatorDot = styled.span<{ $color: string }>`
   flex-shrink: 0;
 `;
 
-export type IndicatorStatus = "error" | "ready" | "in-progress";
+export type IndicatorStatus = 'error' | 'ready' | 'in-progress';
 
 interface StatusIndicatorProps {
   /** Error message — if set, shows red dot with tooltip */
@@ -237,18 +224,9 @@ interface StatusIndicatorProps {
  * - Green: ready for user action (enabled)
  * - Yellow: in progress / waiting (disabled)
  */
-export function StatusIndicator({
-  errorMessage,
-  disabled,
-}: StatusIndicatorProps) {
+export function StatusIndicator({ errorMessage, disabled }: StatusIndicatorProps) {
   if (errorMessage) {
-    return (
-      <IndicatorDot
-        $color="#f38ba8"
-        title={errorMessage}
-        style={{ cursor: "help" }}
-      />
-    );
+    return <IndicatorDot $color="#f38ba8" title={errorMessage} style={{ cursor: 'help' }} />;
   }
   if (disabled) {
     return <IndicatorDot $color="#f9e2af" title="In progress" />;
@@ -362,10 +340,7 @@ interface ErrorBoundaryState {
   error: Error | null;
 }
 
-export class ErrorBoundary extends React.Component<
-  ErrorBoundaryProps,
-  ErrorBoundaryState
-> {
+export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
   constructor(props: ErrorBoundaryProps) {
     super(props);
     this.state = { hasError: false, error: null };
@@ -376,7 +351,7 @@ export class ErrorBoundary extends React.Component<
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
-    console.error("[ErrorBoundary] Caught error:", error, errorInfo);
+    console.error('[ErrorBoundary] Caught error:', error, errorInfo);
   }
 
   handleRetry = (): void => {
@@ -391,7 +366,7 @@ export class ErrorBoundary extends React.Component<
         <ErrorBoundaryWrapper>
           <ErrorTitle>Something went wrong</ErrorTitle>
           <ErrorMessage>
-            {this.state.error?.message ?? "An unexpected error occurred"}
+            {this.state.error?.message ?? 'An unexpected error occurred'}
             {this.state.error?.stack && `\n\n${this.state.error.stack}`}
           </ErrorMessage>
           <RetryButton onClick={this.handleRetry}>Try Again</RetryButton>
@@ -405,15 +380,13 @@ export class ErrorBoundary extends React.Component<
 
 // ─── Relative Time Formatting ────────────────────────────
 
-export function formatRelativeTime(
-  date: Date | string | null | undefined,
-): string {
-  if (!date) return "--";
-  const d = typeof date === "string" ? new Date(date) : date;
-  if (isNaN(d.getTime())) return "--";
+export function formatRelativeTime(date: Date | string | null | undefined): string {
+  if (!date) return '--';
+  const d = typeof date === 'string' ? new Date(date) : date;
+  if (isNaN(d.getTime())) return '--';
   const seconds = Math.floor((Date.now() - d.getTime()) / 1000);
-  if (seconds < 0) return "just now";
-  if (seconds < 5) return "just now";
+  if (seconds < 0) return 'just now';
+  if (seconds < 5) return 'just now';
   if (seconds < 60) return `${seconds}s ago`;
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m ago`;

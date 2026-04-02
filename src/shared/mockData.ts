@@ -1,7 +1,7 @@
-import { GridState } from './constants'
-import type { Story, Task, ProfileMap } from './types'
+import { GridState } from './constants';
+import type { ProfileMap, Story, Task } from './types';
 
-const now = new Date().toISOString()
+const now = new Date().toISOString();
 
 export const mockStories: Story[] = [
   {
@@ -19,7 +19,7 @@ export const mockStories: Story[] = [
     title: 'Migrate database schema v2',
     azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/12330',
   },
-]
+];
 
 export const mockTasks: Task[] = [
   // Profile Assignment
@@ -132,7 +132,7 @@ export const mockTasks: Task[] = [
     createdAt: now,
     updatedAt: now,
   },
-]
+];
 
 export const mockProfiles: ProfileMap = {
   'web-app': {
@@ -150,4 +150,4 @@ export const mockProfiles: ProfileMap = {
     defaultBranch: 'develop',
     description: 'Shared library package',
   },
-}
+};

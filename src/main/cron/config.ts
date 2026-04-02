@@ -4,10 +4,9 @@
  * Reads environment variables for Azure DevOps and GitHub.
  * Returns null if required vars are missing (graceful degradation).
  */
+import type { AzureConfig } from '../azure';
 
-import type { AzureConfig } from '../azure'
-
-let cachedConfig: AzureConfig | null | undefined = undefined
+let cachedConfig: AzureConfig | null | undefined = undefined;
 
 /**
  * Loads Azure DevOps config from environment variables.
@@ -22,28 +21,26 @@ let cachedConfig: AzureConfig | null | undefined = undefined
  * - AZURE_DEVOPS_TEAM: Team name (for @CurrentIteration scope)
  */
 export function getAzureConfig(): AzureConfig | null {
-  if (cachedConfig !== undefined) return cachedConfig
+  if (cachedConfig !== undefined) return cachedConfig;
 
-  const org = process.env.AZURE_DEVOPS_ORG
-  const project = process.env.AZURE_DEVOPS_PROJECT
-  const pat = process.env.AZURE_DEVOPS_PAT
-  const teamId = process.env.AZURE_DEVOPS_TEAM
+  const org = process.env.AZURE_DEVOPS_ORG;
+  const project = process.env.AZURE_DEVOPS_PROJECT;
+  const pat = process.env.AZURE_DEVOPS_PAT;
+  const teamId = process.env.AZURE_DEVOPS_TEAM;
 
   if (!org || !project || !pat) {
-    console.warn(
-      '[config] Azure DevOps not fully configured. Set AZURE_DEVOPS_ORG, AZURE_DEVOPS_PROJECT, and AZURE_DEVOPS_PAT.'
-    )
-    cachedConfig = null
-    return null
+    console.warn('[config] Azure DevOps not fully configured. Set AZURE_DEVOPS_ORG, AZURE_DEVOPS_PROJECT, and AZURE_DEVOPS_PAT.');
+    cachedConfig = null;
+    return null;
   }
 
-  cachedConfig = { org, project, pat, teamId }
-  return cachedConfig
+  cachedConfig = { org, project, pat, teamId };
+  return cachedConfig;
 }
 
 /**
  * Clears the cached config (useful for testing or reloading).
  */
 export function clearConfigCache(): void {
-  cachedConfig = undefined
+  cachedConfig = undefined;
 }

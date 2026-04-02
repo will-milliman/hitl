@@ -12,8 +12,7 @@
  *   const { isGhAuthenticated } = await import('../github')
  *   vi.mocked(isGhAuthenticated).mockResolvedValue(true)
  */
-
-import { vi } from 'vitest'
+import { vi } from 'vitest';
 
 // ─── Logger Mock ───────────────────────────────────────────
 
@@ -26,7 +25,7 @@ export function mockLoggerModule() {
       warn: vi.fn(),
       error: vi.fn(),
     }),
-  }
+  };
 }
 
 // ─── Database Mock ─────────────────────────────────────────
@@ -68,7 +67,7 @@ export function createMockPrismaClient() {
     },
     $connect: vi.fn(),
     $disconnect: vi.fn(),
-  }
+  };
 }
 
 /**
@@ -80,12 +79,12 @@ export function createMockPrismaClient() {
  *   vi.mock('../db', () => mockDbModule(mockDb))
  */
 export function mockDbModule(mockClient?: ReturnType<typeof createMockPrismaClient>) {
-  const client = mockClient ?? createMockPrismaClient()
+  const client = mockClient ?? createMockPrismaClient();
   return {
     getDb: vi.fn(() => client),
     initDatabase: vi.fn().mockResolvedValue(client),
     closeDatabase: vi.fn().mockResolvedValue(undefined),
-  }
+  };
 }
 
 // ─── GitHub Module Mock ────────────────────────────────────
@@ -107,7 +106,7 @@ export function mockGitHubModule() {
     getPrIssueComments: vi.fn().mockResolvedValue([]),
     findUnresolvedThreads: vi.fn().mockReturnValue([]),
     formatCommentsForPrompt: vi.fn().mockReturnValue(''),
-  }
+  };
 }
 
 // ─── Azure DevOps Module Mock ──────────────────────────────
@@ -118,12 +117,11 @@ export function mockAzureModule() {
     queryWiql: vi.fn().mockResolvedValue({ workItems: [] }),
     getWorkItems: vi.fn().mockResolvedValue([]),
     workItemUrl: vi.fn(
-      (org: string, project: string, id: number) =>
-        `https://dev.azure.com/${org}/${project}/_workitems/edit/${id}`
+      (org: string, project: string, id: number) => `https://dev.azure.com/${org}/${project}/_workitems/edit/${id}`,
     ),
     buildSprintTasksQuery: vi.fn().mockReturnValue('SELECT [System.Id] FROM WorkItems'),
     buildSprintStoriesQuery: vi.fn().mockReturnValue('SELECT [System.Id] FROM WorkItems'),
-  }
+  };
 }
 
 // ─── Copilot Module Mock ───────────────────────────────────
@@ -155,7 +153,7 @@ export function mockCopilotModule() {
     unwatchAll: vi.fn(),
     getActiveWatcherCount: vi.fn().mockReturnValue(0),
     isWatching: vi.fn().mockReturnValue(false),
-  }
+  };
 }
 
 // ─── Worktree Module Mock ──────────────────────────────────
@@ -166,15 +164,13 @@ export function mockWorktreeModule() {
     listWorktrees: vi.fn().mockResolvedValue([]),
     getWorktreesDir: vi.fn((repoPath: string) => `${repoPath}-worktrees`),
     getNextWorktreePath: vi.fn((repoPath: string) => `${repoPath}-worktrees/repo-1`),
-    getBranchName: vi.fn(
-      (type: string, workItemId: number) => `${type}/${workItemId}`
-    ),
+    getBranchName: vi.fn((type: string, workItemId: number) => `${type}/${workItemId}`),
     findIdleWorktree: vi.fn().mockResolvedValue(null),
     createWorktree: vi.fn().mockResolvedValue('/tmp/test-worktree'),
     createTaskWorktree: vi.fn().mockResolvedValue('/tmp/test-worktree'),
     removeWorktree: vi.fn().mockResolvedValue(undefined),
     pruneWorktrees: vi.fn().mockResolvedValue(undefined),
-  }
+  };
 }
 
 // ─── Settings Module Mock ──────────────────────────────────
@@ -210,7 +206,7 @@ export function mockSettingsModule() {
         description: 'Test profile',
       },
     }),
-  }
+  };
 }
 
 // ─── Notifications Module Mock ─────────────────────────────
@@ -221,7 +217,7 @@ export function mockNotificationsModule() {
     notifyPrReviewNeeded: vi.fn(),
     notifyTaskCompleted: vi.fn(),
     notifyCronError: vi.fn(),
-  }
+  };
 }
 
 // ─── Cron Config Mock ──────────────────────────────────────
@@ -236,7 +232,7 @@ export function mockCronConfigModule() {
       teamId: 'test-team',
     }),
     clearConfigCache: vi.fn(),
-  }
+  };
 }
 
 // ─── Electron Module Mock ──────────────────────────────────
@@ -259,7 +255,7 @@ export function mockElectronModule() {
     BrowserWindow: {
       getAllWindows: vi.fn().mockReturnValue([]),
     },
-  }
+  };
 }
 
 // ─── child_process Mock (for pr-check's execFile) ──────────
@@ -268,9 +264,9 @@ export function mockElectronModule() {
 export function mockChildProcessModule() {
   return {
     execFile: vi.fn((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
-      cb(null, { stdout: '', stderr: '' })
+      cb(null, { stdout: '', stderr: '' });
     }),
-  }
+  };
 }
 
 // ─── fs Mock (for task-execution's existsSync) ─────────────
@@ -289,5 +285,5 @@ export function mockFsModule() {
     statSync: vi.fn(),
     unlinkSync: vi.fn(),
     appendFileSync: vi.fn(),
-  }
+  };
 }

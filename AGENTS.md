@@ -28,19 +28,19 @@ prisma/            # Schema, migrations, seed
 
 ### Main Process Modules (`src/main/`)
 
-| Module | Path | Purpose |
-|--------|------|---------|
-| DB | `db/index.ts` | Prisma client lifecycle |
-| tRPC Router | `trpc/router.ts` | ~50 IPC endpoints (queries + mutations) |
-| Cron | `cron/index.ts` | 60s scheduler, 6 pipeline steps |
-| Azure | `azure/client.ts` | Work item sync via WIQL + REST |
-| GitHub | `github/client.ts` | PR ops via `gh` CLI |
-| Copilot | `copilot/` | Session spawning, hooks, signal file watcher |
-| Worktree | `worktree/index.ts` | Git worktree lifecycle |
-| Settings | `settings/index.ts` | JSON settings with env-var fallbacks |
-| Logger | `logger/index.ts` | Structured logging (file + ring buffer) |
-| Notifications | `notifications/index.ts` | OS-level notifications |
-| Updater | `updater/index.ts` | Auto-update via GitHub Releases |
+| Module        | Path                     | Purpose                                      |
+| ------------- | ------------------------ | -------------------------------------------- |
+| DB            | `db/index.ts`            | Prisma client lifecycle                      |
+| tRPC Router   | `trpc/router.ts`         | ~50 IPC endpoints (queries + mutations)      |
+| Cron          | `cron/index.ts`          | 60s scheduler, 6 pipeline steps              |
+| Azure         | `azure/client.ts`        | Work item sync via WIQL + REST               |
+| GitHub        | `github/client.ts`       | PR ops via `gh` CLI                          |
+| Copilot       | `copilot/`               | Session spawning, hooks, signal file watcher |
+| Worktree      | `worktree/index.ts`      | Git worktree lifecycle                       |
+| Settings      | `settings/index.ts`      | JSON settings with env-var fallbacks         |
+| Logger        | `logger/index.ts`        | Structured logging (file + ring buffer)      |
+| Notifications | `notifications/index.ts` | OS-level notifications                       |
+| Updater       | `updater/index.ts`       | Auto-update via GitHub Releases              |
 
 ### Pipeline States (GridState enum in `src/shared/constants.ts`)
 
@@ -66,16 +66,16 @@ Each state has a grid view in `src/renderer/grids/`.
 
 ## Commands
 
-| Command | Purpose |
-|---------|---------|
-| `npm run dev` | Electron + Vite dev server (hot reload) |
-| `npm run build` | Build all targets to `out/` |
-| `npm test` | Run Vitest (54 tests) |
-| `npm run typecheck` | TypeScript check all configs |
-| `npm run db:migrate` | Run Prisma migrations |
-| `npm run db:seed` | Seed test data |
-| `npm run db:reset` | Wipe + re-migrate + seed |
-| `npm run dist` | Build NSIS installer |
+| Command              | Purpose                                 |
+| -------------------- | --------------------------------------- |
+| `npm run dev`        | Electron + Vite dev server (hot reload) |
+| `npm run build`      | Build all targets to `out/`             |
+| `npm test`           | Run Vitest (54 tests)                   |
+| `npm run typecheck`  | TypeScript check all configs            |
+| `npm run db:migrate` | Run Prisma migrations                   |
+| `npm run db:seed`    | Seed test data                          |
+| `npm run db:reset`   | Wipe + re-migrate + seed                |
+| `npm run dist`       | Build NSIS installer                    |
 
 ## Configuration
 

@@ -28,4 +28,4 @@ export {
   type PullRequest,
   type CreatePRParams,
   type ReviewComment,
-} from './client'
+} from './client';

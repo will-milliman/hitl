@@ -15,34 +15,22 @@
  *
  * This step is gated by the `taskExecutionEnabled` flag in CronState.
  */
+import { existsSync } from 'fs';
 
-import { getDb } from '../db'
-import { existsSync } from 'fs'
-import {
-  spawnSession,
-  ensureGlobalHooks,
-  watchSignals,
-  isWatching,
-  readLatestSignal,
-  SIGNAL_FILES,
-  getLogDir,
-} from '../copilot'
-import { GridState } from '../../shared/constants'
-import { createLogger } from '../logger'
+import { GridState } from '../../shared/constants';
+import { SIGNAL_FILES, ensureGlobalHooks, getLogDir, isWatching, readLatestSignal, spawnSession, watchSignals } from '../copilot';
+import { getDb } from '../db';
+import { createLogger } from '../logger';
 
-const logger = createLogger('task-exec')
+const logger = createLogger('task-exec');
 
 /**
  * The task execution prompt sent to Copilot CLI.
  *
  * Instructs the agent to implement the task as described.
  */
-function buildTaskPrompt(
-  taskId: number,
-  taskTitle: string,
-  storyTitle?: string
-): string {
-  const storyContext = storyTitle ? `\nParent Story: ${storyTitle}\n` : ''
+function buildTaskPrompt(taskId: number, taskTitle: string, storyTitle?: string): string {
+  const storyContext = storyTitle ? `\nParent Story: ${storyTitle}\n` : '';
   return `You are implementing a development task.
 ${storyContext}
 Task #${taskId}: ${taskTitle}
@@ -57,7 +45,7 @@ Your goal is to implement this task completely. Please:
 
 After implementing, create a pull request targeting the default branch (e.g., main).
 
-Focus on quality and correctness. Ask for clarification if the task description is ambiguous.`
+Focus on quality and correctness. Ask for clarification if the task description is ambiguous.`;
 }
 
 /**
@@ -70,7 +58,7 @@ Focus on quality and correctness. Ask for clarification if the task description 
  * 4. Session died without signaling -> no log directory, reset sessionId
  */
 async function recoverInterruptedTasks(): Promise<void> {
-  const db = getDb()
+  const db = getDb();
 
   // Scenario 1: Worktree path points to a non-existent directory
   const tasksWithWorktrees = await db.task.findMany({
@@ -79,17 +67,15 @@ async function recoverInterruptedTasks(): Promise<void> {
       worktreePath: { not: null },
       disabled: true,
     },
-  })
+  });
 
   for (const task of tasksWithWorktrees) {
     if (!existsSync(task.worktreePath!)) {
-      logger.info(
-        `Task #${task.id}: worktree at ${task.worktreePath} no longer exists, resetting`
-      )
+      logger.info(`Task #${task.id}: worktree at ${task.worktreePath} no longer exists, resetting`);
       await db.task.update({
         where: { id: task.id },
         data: { worktreePath: null, sessionId: null },
-      })
+      });
     }
   }
 
@@ -101,52 +87,46 @@ async function recoverInterruptedTasks(): Promise<void> {
       worktreePath: { not: null },
       disabled: true,
     },
-  })
+  });
 
   for (const task of tasksWithSessions) {
-    const worktreePath = task.worktreePath!
+    const worktreePath = task.worktreePath!;
 
-    const signal = readLatestSignal(worktreePath)
+    const signal = readLatestSignal(worktreePath);
 
     if (signal?.signal === SIGNAL_FILES.SESSION_END) {
-      logger.info(
-        `Task #${task.id}: session ended while app was off, enabling for review`
-      )
+      logger.info(`Task #${task.id}: session ended while app was off, enabling for review`);
       await db.task.update({
         where: { id: task.id },
         data: { disabled: false },
-      })
-      continue
+      });
+      continue;
     }
 
     if (signal?.signal === SIGNAL_FILES.SESSION_IDLE) {
-      logger.info(
-        `Task #${task.id}: session idle while app was off, enabling`
-      )
+      logger.info(`Task #${task.id}: session idle while app was off, enabling`);
       await db.task.update({
         where: { id: task.id },
         data: { disabled: false },
-      })
-      continue
+      });
+      continue;
     }
 
     // Check if log directory exists
-    const logDir = getLogDir(worktreePath)
+    const logDir = getLogDir(worktreePath);
     if (!existsSync(logDir)) {
-      logger.info(
-        `Task #${task.id}: no log directory found, resetting session`
-      )
+      logger.info(`Task #${task.id}: no log directory found, resetting session`);
       await db.task.update({
         where: { id: task.id },
         data: { sessionId: null },
-      })
-      continue
+      });
+      continue;
     }
 
     // If we have a session with an active signal, make sure the watcher is running
     if (!isWatching(worktreePath)) {
-      watchSignals(worktreePath, 'task', task.id)
-      logger.info(`Task #${task.id}: re-established watcher for active session`)
+      watchSignals(worktreePath, 'task', task.id);
+      logger.info(`Task #${task.id}: re-established watcher for active session`);
     }
   }
 }
@@ -156,10 +136,10 @@ async function recoverInterruptedTasks(): Promise<void> {
  * that are ready for implementation.
  */
 export async function runTaskExecutionStep(): Promise<void> {
-  const db = getDb()
+  const db = getDb();
 
   // First, recover any interrupted flows from previous app sessions
-  await recoverInterruptedTasks()
+  await recoverInterruptedTasks();
 
   // Find tasks in TASK_EXECUTION with a worktree but no session
   const tasks = await db.task.findMany({
@@ -175,44 +155,42 @@ export async function runTaskExecutionStep(): Promise<void> {
         select: { title: true },
       },
     },
-  })
+  });
 
-  if (tasks.length === 0) return
+  if (tasks.length === 0) return;
 
-  logger.info(`Found ${tasks.length} tasks ready for execution`)
+  logger.info(`Found ${tasks.length} tasks ready for execution`);
 
   for (const task of tasks) {
-    const worktreePath = task.worktreePath!
+    const worktreePath = task.worktreePath!;
 
     try {
       // Ensure global hooks are configured
-      ensureGlobalHooks()
+      ensureGlobalHooks();
 
       // Spawn a copilot session
-      logger.info(`Spawning execution session for task #${task.id} (model: ${task.model ?? 'default'})`)
+      logger.info(`Spawning execution session for task #${task.id} (model: ${task.model ?? 'default'})`);
       const { sessionId } = await spawnSession({
         cwd: worktreePath,
         prompt: buildTaskPrompt(task.id, task.title, task.story?.title),
         model: task.model ?? undefined,
-      })
+      });
 
       // Save session ID to database
       await db.task.update({
         where: { id: task.id },
         data: { sessionId },
-      })
+      });
 
       // Start watching for signal files
       if (!isWatching(worktreePath)) {
-        watchSignals(worktreePath, 'task', task.id)
+        watchSignals(worktreePath, 'task', task.id);
       }
 
-      logger.info(`Task #${task.id} execution session: ${sessionId}`)
+      logger.info(`Task #${task.id} execution session: ${sessionId}`);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      logger.error(
-        `Failed to start execution for task #${task.id}: ${message}`
-      )
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error(`Failed to start execution for task #${task.id}: ${message}`);
       // Don't fail the whole step — continue with other tasks
     }
   }
@@ -225,7 +203,7 @@ export async function runTaskExecutionStep(): Promise<void> {
  * from sessions that were spawned in a previous app session.
  */
 export async function resumeTaskWatchers(): Promise<void> {
-  const db = getDb()
+  const db = getDb();
 
   const tasksWithSessions = await db.task.findMany({
     where: {
@@ -234,12 +212,12 @@ export async function resumeTaskWatchers(): Promise<void> {
       worktreePath: { not: null },
       disabled: true,
     },
-  })
+  });
 
   for (const task of tasksWithSessions) {
     if (!isWatching(task.worktreePath!)) {
-      watchSignals(task.worktreePath!, 'task', task.id)
-      logger.info(`Resumed watcher for task #${task.id}`)
+      watchSignals(task.worktreePath!, 'task', task.id);
+      logger.info(`Resumed watcher for task #${task.id}`);
     }
   }
 }

@@ -1,11 +1,12 @@
-import React, { useState, useMemo } from "react";
-import styled from "styled-components";
-import { trpc } from "../../trpc/client";
+import React, { useMemo, useState } from 'react';
+import styled from 'styled-components';
+
+import { trpc } from '../../trpc/client';
 
 const Panel = styled.div<{ $expanded: boolean }>`
   border-top: 1px solid ${({ theme }) => theme.colors.surface0};
   background: ${({ theme }) => theme.colors.mantle};
-  max-height: ${({ $expanded }) => ($expanded ? "300px" : "32px")};
+  max-height: ${({ $expanded }) => ($expanded ? '300px' : '32px')};
   transition: max-height 0.2s ease;
   display: flex;
   flex-direction: column;
@@ -39,12 +40,9 @@ const FilterGroup = styled.div`
 `;
 
 const FilterButton = styled.button<{ $active?: boolean }>`
-  background: ${({ theme, $active }) =>
-    $active ? theme.colors.surface1 : "transparent"};
-  color: ${({ theme, $active }) =>
-    $active ? theme.colors.text : theme.colors.overlay0};
-  border: 1px solid
-    ${({ theme, $active }) => ($active ? theme.colors.surface2 : "transparent")};
+  background: ${({ theme, $active }) => ($active ? theme.colors.surface1 : 'transparent')};
+  color: ${({ theme, $active }) => ($active ? theme.colors.text : theme.colors.overlay0)};
+  border: 1px solid ${({ theme, $active }) => ($active ? theme.colors.surface2 : 'transparent')};
   padding: 2px 8px;
   font-size: 10px;
   cursor: pointer;
@@ -70,11 +68,11 @@ const LogLine = styled.div<{ $level: string }>`
   gap: 8px;
   color: ${({ theme, $level }) => {
     switch ($level) {
-      case "error":
+      case 'error':
         return theme.colors.red;
-      case "warn":
+      case 'warn':
         return theme.colors.yellow;
-      case "debug":
+      case 'debug':
         return theme.colors.overlay0;
       default:
         return theme.colors.subtext1;
@@ -121,7 +119,7 @@ const SettingsButton = styled.button`
   }
 `;
 
-type LevelFilter = "all" | "info" | "warn" | "error";
+type LevelFilter = 'all' | 'info' | 'warn' | 'error';
 
 interface LogViewerProps {
   onSettingsOpen?: () => void;
@@ -129,7 +127,7 @@ interface LogViewerProps {
 
 export function LogViewer({ onSettingsOpen }: LogViewerProps) {
   const [expanded, setExpanded] = useState(false);
-  const [levelFilter, setLevelFilter] = useState<LevelFilter>("all");
+  const [levelFilter, setLevelFilter] = useState<LevelFilter>('all');
 
   const logsQuery = trpc.recentLogs.useQuery(
     { limit: 200 },
@@ -142,7 +140,7 @@ export function LogViewer({ onSettingsOpen }: LogViewerProps) {
   const filteredLogs = useMemo(() => {
     const logs = logsQuery.data ?? [];
     const filtered =
-      levelFilter === "all"
+      levelFilter === 'all'
         ? logs
         : (() => {
             const order: Record<string, number> = {
@@ -157,20 +155,14 @@ export function LogViewer({ onSettingsOpen }: LogViewerProps) {
     return [...filtered].reverse();
   }, [logsQuery.data, levelFilter]);
 
-  const errorCount = useMemo(
-    () => (logsQuery.data ?? []).filter((l) => l.level === "error").length,
-    [logsQuery.data],
-  );
+  const errorCount = useMemo(() => (logsQuery.data ?? []).filter((l) => l.level === 'error').length, [logsQuery.data]);
 
-  const warnCount = useMemo(
-    () => (logsQuery.data ?? []).filter((l) => l.level === "warn").length,
-    [logsQuery.data],
-  );
+  const warnCount = useMemo(() => (logsQuery.data ?? []).filter((l) => l.level === 'warn').length, [logsQuery.data]);
 
   function formatTime(timestamp: string): string {
     try {
       const d = new Date(timestamp);
-      return d.toLocaleTimeString("en-US", { hour12: false });
+      return d.toLocaleTimeString('en-US', { hour12: false });
     } catch {
       return timestamp;
     }
@@ -180,35 +172,23 @@ export function LogViewer({ onSettingsOpen }: LogViewerProps) {
     <Panel $expanded={expanded}>
       <PanelHeader onClick={() => setExpanded(!expanded)}>
         <PanelTitle>
-          {expanded ? "▼" : "▶"} Logs
+          {expanded ? '▼' : '▶'} Logs
           {errorCount > 0 && ` (${errorCount} errors)`}
           {warnCount > 0 && errorCount === 0 && ` (${warnCount} warnings)`}
         </PanelTitle>
         <FilterGroup onClick={(e) => e.stopPropagation()}>
           {expanded && (
             <>
-              <FilterButton
-                $active={levelFilter === "all"}
-                onClick={() => setLevelFilter("all")}
-              >
+              <FilterButton $active={levelFilter === 'all'} onClick={() => setLevelFilter('all')}>
                 All
               </FilterButton>
-              <FilterButton
-                $active={levelFilter === "info"}
-                onClick={() => setLevelFilter("info")}
-              >
+              <FilterButton $active={levelFilter === 'info'} onClick={() => setLevelFilter('info')}>
                 Info+
               </FilterButton>
-              <FilterButton
-                $active={levelFilter === "warn"}
-                onClick={() => setLevelFilter("warn")}
-              >
+              <FilterButton $active={levelFilter === 'warn'} onClick={() => setLevelFilter('warn')}>
                 Warn+
               </FilterButton>
-              <FilterButton
-                $active={levelFilter === "error"}
-                onClick={() => setLevelFilter("error")}
-              >
+              <FilterButton $active={levelFilter === 'error'} onClick={() => setLevelFilter('error')}>
                 Errors
               </FilterButton>
             </>

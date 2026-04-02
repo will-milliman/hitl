@@ -7,4 +7,4 @@ export {
   workItemUrl,
   buildSprintTasksQuery,
   buildSprintStoriesQuery,
-} from './client'
+} from './client';

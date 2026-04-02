@@ -15,47 +15,41 @@
  * - Story branches: story/<workItemId>
  * - Task branches:  task/<workItemId>
  */
+import { execFile } from 'child_process';
+import { existsSync, readdirSync } from 'fs';
+import { basename, dirname, join, resolve } from 'path';
+import { promisify } from 'util';
 
-import { execFile } from 'child_process'
-import { promisify } from 'util'
-import { resolve, basename, dirname, join } from 'path'
-import { existsSync, readdirSync } from 'fs'
-
-const execFileAsync = promisify(execFile)
+const execFileAsync = promisify(execFile);
 
 /** Options for git command execution */
 interface GitOptions {
-  cwd: string
-  timeout?: number
+  cwd: string;
+  timeout?: number;
 }
 
 /** Parsed worktree entry from `git worktree list` */
 export interface WorktreeEntry {
-  path: string
-  head: string // commit hash
-  branch: string | null // branch name, null if detached
-  bare: boolean
+  path: string;
+  head: string; // commit hash
+  branch: string | null; // branch name, null if detached
+  bare: boolean;
 }
 
 /**
  * Runs a git command in the given directory.
  */
-async function git(
-  args: string[],
-  options: GitOptions
-): Promise<{ stdout: string; stderr: string }> {
-  const { cwd, timeout = 30_000 } = options
+async function git(args: string[], options: GitOptions): Promise<{ stdout: string; stderr: string }> {
+  const { cwd, timeout = 30_000 } = options;
   try {
     return await execFileAsync('git', args, {
       cwd,
       timeout,
       windowsHide: true,
-    })
+    });
   } catch (err: unknown) {
-    const error = err as Error & { stdout?: string; stderr?: string }
-    throw new Error(
-      `[worktree] git ${args.join(' ')} failed in ${cwd}: ${error.stderr || error.message}`
-    )
+    const error = err as Error & { stdout?: string; stderr?: string };
+    throw new Error(`[worktree] git ${args.join(' ')} failed in ${cwd}: ${error.stderr || error.message}`);
   }
 }
 
@@ -65,31 +59,31 @@ async function git(
 export async function listWorktrees(repoPath: string): Promise<WorktreeEntry[]> {
   const { stdout } = await git(['worktree', 'list', '--porcelain'], {
     cwd: repoPath,
-  })
+  });
 
-  const entries: WorktreeEntry[] = []
-  let current: Partial<WorktreeEntry> = {}
+  const entries: WorktreeEntry[] = [];
+  let current: Partial<WorktreeEntry> = {};
 
   for (const line of stdout.split('\n')) {
     if (line.startsWith('worktree ')) {
-      if (current.path) entries.push(current as WorktreeEntry)
-      current = { path: line.substring(9).trim(), branch: null, bare: false }
+      if (current.path) entries.push(current as WorktreeEntry);
+      current = { path: line.substring(9).trim(), branch: null, bare: false };
     } else if (line.startsWith('HEAD ')) {
-      current.head = line.substring(5).trim()
+      current.head = line.substring(5).trim();
     } else if (line.startsWith('branch ')) {
       // e.g. "branch refs/heads/story/12345"
-      const ref = line.substring(7).trim()
-      current.branch = ref.replace('refs/heads/', '')
+      const ref = line.substring(7).trim();
+      current.branch = ref.replace('refs/heads/', '');
     } else if (line === 'bare') {
-      current.bare = true
+      current.bare = true;
     } else if (line === 'detached') {
-      current.branch = null
+      current.branch = null;
     }
   }
 
-  if (current.path) entries.push(current as WorktreeEntry)
+  if (current.path) entries.push(current as WorktreeEntry);
 
-  return entries
+  return entries;
 }
 
 /**
@@ -97,8 +91,8 @@ export async function listWorktrees(repoPath: string): Promise<WorktreeEntry[]> 
  * Convention: sibling directory named `<repoName>-worktrees`
  */
 export function getWorktreesDir(repoPath: string): string {
-  const repoName = basename(repoPath)
-  return join(dirname(repoPath), `${repoName}-worktrees`)
+  const repoName = basename(repoPath);
+  return join(dirname(repoPath), `${repoName}-worktrees`);
 }
 
 /**
@@ -108,20 +102,20 @@ export function getWorktreesDir(repoPath: string): string {
  * E.g., if `rainier-1` and `rainier-2` exist, returns path for `rainier-3`.
  */
 export function getNextWorktreePath(repoPath: string): string {
-  const worktreesDir = getWorktreesDir(repoPath)
-  const repoName = basename(repoPath)
-  const prefix = `${repoName}-`
+  const worktreesDir = getWorktreesDir(repoPath);
+  const repoName = basename(repoPath);
+  const prefix = `${repoName}-`;
 
-  let maxNumber = 0
+  let maxNumber = 0;
 
   if (existsSync(worktreesDir)) {
     try {
-      const entries = readdirSync(worktreesDir)
+      const entries = readdirSync(worktreesDir);
       for (const entry of entries) {
         if (entry.startsWith(prefix)) {
-          const num = parseInt(entry.substring(prefix.length), 10)
+          const num = parseInt(entry.substring(prefix.length), 10);
           if (!isNaN(num) && num > maxNumber) {
-            maxNumber = num
+            maxNumber = num;
           }
         }
       }
@@ -130,7 +124,7 @@ export function getNextWorktreePath(repoPath: string): string {
     }
   }
 
-  return join(worktreesDir, `${prefix}${maxNumber + 1}`)
+  return join(worktreesDir, `${prefix}${maxNumber + 1}`);
 }
 
 /**
@@ -142,24 +136,85 @@ export function getNextWorktreePath(repoPath: string): string {
  */
 export function extractKeywords(title: string): string {
   const stopWords = new Set([
-    'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-    'of', 'with', 'by', 'from', 'is', 'are', 'was', 'were', 'be', 'been',
-    'has', 'have', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
-    'should', 'may', 'might', 'can', 'shall', 'it', 'its', 'this', 'that',
-    'these', 'those', 'i', 'we', 'you', 'they', 'he', 'she', 'as', 'if',
-    'not', 'no', 'so', 'up', 'out', 'all', 'into', 'also', 'than', 'then',
-    'when', 'where', 'how', 'what', 'which', 'who', 'whom', 'each', 'every',
-  ])
+    'the',
+    'a',
+    'an',
+    'and',
+    'or',
+    'but',
+    'in',
+    'on',
+    'at',
+    'to',
+    'for',
+    'of',
+    'with',
+    'by',
+    'from',
+    'is',
+    'are',
+    'was',
+    'were',
+    'be',
+    'been',
+    'has',
+    'have',
+    'had',
+    'do',
+    'does',
+    'did',
+    'will',
+    'would',
+    'could',
+    'should',
+    'may',
+    'might',
+    'can',
+    'shall',
+    'it',
+    'its',
+    'this',
+    'that',
+    'these',
+    'those',
+    'i',
+    'we',
+    'you',
+    'they',
+    'he',
+    'she',
+    'as',
+    'if',
+    'not',
+    'no',
+    'so',
+    'up',
+    'out',
+    'all',
+    'into',
+    'also',
+    'than',
+    'then',
+    'when',
+    'where',
+    'how',
+    'what',
+    'which',
+    'who',
+    'whom',
+    'each',
+    'every',
+  ]);
 
   const words = title
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, '') // strip non-alphanumeric
     .split(/\s+/)
-    .filter((w) => w.length > 1 && !stopWords.has(w))
+    .filter((w) => w.length > 1 && !stopWords.has(w));
 
-  if (words.length === 0) return 'update'
-  if (words.length === 1) return words[0]
-  return `${words[0]}-${words[1]}`
+  if (words.length === 0) return 'update';
+  if (words.length === 1) return words[0];
+  return `${words[0]}-${words[1]}`;
 }
 
 /**
@@ -170,14 +225,10 @@ export function extractKeywords(title: string): string {
  *
  * If no title is provided, falls back to a simple `<type>/<workItemId>` format.
  */
-export function getBranchName(
-  type: 'story' | 'task',
-  workItemId: number,
-  title?: string
-): string {
-  if (!title) return `${type}/${workItemId}`
-  const keywords = extractKeywords(title)
-  return `${type}/${workItemId}/${keywords}`
+export function getBranchName(type: 'story' | 'task', workItemId: number, title?: string): string {
+  if (!title) return `${type}/${workItemId}`;
+  const keywords = extractKeywords(title);
+  return `${type}/${workItemId}/${keywords}`;
 }
 
 /**
@@ -196,44 +247,38 @@ export async function getUniqueBranchName(
   repoPath: string,
   type: 'story' | 'task',
   workItemId: number,
-  title?: string
+  title?: string,
 ): Promise<string> {
-  const baseName = getBranchName(type, workItemId, title)
+  const baseName = getBranchName(type, workItemId, title);
 
   // Check if this branch already exists
   try {
-    const { stdout } = await git(['branch', '--list', baseName], { cwd: repoPath })
+    const { stdout } = await git(['branch', '--list', baseName], { cwd: repoPath });
     if (!stdout.trim()) {
       // Also check remote branches
-      const { stdout: remoteOut } = await git(
-        ['branch', '-r', '--list', `origin/${baseName}`],
-        { cwd: repoPath }
-      )
-      if (!remoteOut.trim()) return baseName
+      const { stdout: remoteOut } = await git(['branch', '-r', '--list', `origin/${baseName}`], { cwd: repoPath });
+      if (!remoteOut.trim()) return baseName;
     }
   } catch {
-    return baseName // If git fails, just use the base name
+    return baseName; // If git fails, just use the base name
   }
 
   // Branch exists — try with numeric suffixes
   for (let i = 2; i <= 50; i++) {
-    const candidate = `${baseName}-${i}`
+    const candidate = `${baseName}-${i}`;
     try {
-      const { stdout } = await git(['branch', '--list', candidate], { cwd: repoPath })
+      const { stdout } = await git(['branch', '--list', candidate], { cwd: repoPath });
       if (!stdout.trim()) {
-        const { stdout: remoteOut } = await git(
-          ['branch', '-r', '--list', `origin/${candidate}`],
-          { cwd: repoPath }
-        )
-        if (!remoteOut.trim()) return candidate
+        const { stdout: remoteOut } = await git(['branch', '-r', '--list', `origin/${candidate}`], { cwd: repoPath });
+        if (!remoteOut.trim()) return candidate;
       }
     } catch {
-      return candidate
+      return candidate;
     }
   }
 
   // Extremely unlikely fallback
-  return `${baseName}-${Date.now()}`
+  return `${baseName}-${Date.now()}`;
 }
 
 /**
@@ -244,32 +289,29 @@ export async function getUniqueBranchName(
  * @param assignedPaths Set of worktree paths currently assigned in the DB
  * @returns The path of an idle worktree, or null if none found
  */
-export async function findIdleWorktree(
-  repoPath: string,
-  assignedPaths: Set<string>
-): Promise<WorktreeEntry | null> {
-  const worktrees = await listWorktrees(repoPath)
-  const worktreesDir = getWorktreesDir(repoPath)
+export async function findIdleWorktree(repoPath: string, assignedPaths: Set<string>): Promise<WorktreeEntry | null> {
+  const worktrees = await listWorktrees(repoPath);
+  const worktreesDir = getWorktreesDir(repoPath);
 
-  const candidates: WorktreeEntry[] = []
+  const candidates: WorktreeEntry[] = [];
 
   for (const wt of worktrees) {
     // Skip the main worktree (the repo itself)
-    if (wt.path === resolve(repoPath)) continue
+    if (wt.path === resolve(repoPath)) continue;
     // Skip worktrees not in our managed directory
-    if (!wt.path.startsWith(worktreesDir)) continue
+    if (!wt.path.startsWith(worktreesDir)) continue;
     // Skip worktrees that are currently assigned
-    if (assignedPaths.has(wt.path)) continue
+    if (assignedPaths.has(wt.path)) continue;
 
-    candidates.push(wt)
+    candidates.push(wt);
   }
 
-  if (candidates.length === 0) return null
+  if (candidates.length === 0) return null;
 
   // Prefer detached (parked) worktrees — these are ready for reuse
   // without needing to detach an existing branch first
-  const detached = candidates.find((wt) => wt.branch === null)
-  return detached ?? candidates[0]
+  const detached = candidates.find((wt) => wt.branch === null);
+  return detached ?? candidates[0];
 }
 
 /**
@@ -294,65 +336,50 @@ export async function createWorktree(
   workItemId: number,
   defaultBranch: string,
   baseBranch?: string,
-  title?: string
+  title?: string,
 ): Promise<string> {
-  const base = baseBranch ?? `origin/${defaultBranch}`
+  const base = baseBranch ?? `origin/${defaultBranch}`;
 
   // Fetch latest from origin
-  console.log(`[worktree] Fetching latest in ${repoPath}...`)
-  await git(['fetch', 'origin'], { cwd: repoPath })
+  console.log(`[worktree] Fetching latest in ${repoPath}...`);
+  await git(['fetch', 'origin'], { cwd: repoPath });
 
   // Check if a branch for this work item already exists (any keyword variant)
-  const branchPrefix = `${type}/${workItemId}`
+  const branchPrefix = `${type}/${workItemId}`;
   try {
-    const { stdout } = await git(
-      ['branch', '--list', `${branchPrefix}/*`],
-      { cwd: repoPath }
-    )
+    const { stdout } = await git(['branch', '--list', `${branchPrefix}/*`], { cwd: repoPath });
     // Also check the bare prefix (legacy branches without keywords)
-    const { stdout: legacyOut } = await git(
-      ['branch', '--list', branchPrefix],
-      { cwd: repoPath }
-    )
-    const existingBranch = (legacyOut.trim() || stdout.trim().split('\n')[0])?.trim().replace(/^\*\s*/, '')
+    const { stdout: legacyOut } = await git(['branch', '--list', branchPrefix], { cwd: repoPath });
+    const existingBranch = (legacyOut.trim() || stdout.trim().split('\n')[0])?.trim().replace(/^\*\s*/, '');
     if (existingBranch) {
       // Branch exists — check if it already has a worktree
-      const worktrees = await listWorktrees(repoPath)
-      const existingWt = worktrees.find((wt) => wt.branch === existingBranch)
+      const worktrees = await listWorktrees(repoPath);
+      const existingWt = worktrees.find((wt) => wt.branch === existingBranch);
       if (existingWt) {
-        console.log(
-          `[worktree] Worktree already exists for branch ${existingBranch} at ${existingWt.path}, reusing`
-        )
-        return existingWt.path
+        console.log(`[worktree] Worktree already exists for branch ${existingBranch} at ${existingWt.path}, reusing`);
+        return existingWt.path;
       }
       // Branch exists but no worktree — create a new numbered worktree for it
-      const worktreePath = getNextWorktreePath(repoPath)
-      console.log(
-        `[worktree] Branch ${existingBranch} exists, adding worktree at ${worktreePath}`
-      )
+      const worktreePath = getNextWorktreePath(repoPath);
+      console.log(`[worktree] Branch ${existingBranch} exists, adding worktree at ${worktreePath}`);
       await git(['worktree', 'add', worktreePath, existingBranch], {
         cwd: repoPath,
-      })
-      return worktreePath
+      });
+      return worktreePath;
     }
   } catch {
     // Branch doesn't exist, which is fine — we'll create it
   }
 
   // Generate a unique branch name with keywords from the title
-  const branchName = await getUniqueBranchName(repoPath, type, workItemId, title)
+  const branchName = await getUniqueBranchName(repoPath, type, workItemId, title);
 
   // Create new worktree with new branch using next sequential number
-  const worktreePath = getNextWorktreePath(repoPath)
-  console.log(
-    `[worktree] Creating worktree at ${worktreePath} (branch: ${branchName} from ${base})`
-  )
-  await git(
-    ['worktree', 'add', '-b', branchName, worktreePath, base],
-    { cwd: repoPath }
-  )
+  const worktreePath = getNextWorktreePath(repoPath);
+  console.log(`[worktree] Creating worktree at ${worktreePath} (branch: ${branchName} from ${base})`);
+  await git(['worktree', 'add', '-b', branchName, worktreePath, base], { cwd: repoPath });
 
-  return worktreePath
+  return worktreePath;
 }
 
 /**
@@ -369,29 +396,24 @@ export async function createTaskWorktree(
   storyId: number,
   taskId: number,
   defaultBranch: string,
-  title?: string
+  title?: string,
 ): Promise<string> {
-  const storyBranch = getBranchName('story', storyId)
+  const storyBranch = getBranchName('story', storyId);
 
   // Check if the story branch exists
   try {
-    const { stdout } = await git(
-      ['branch', '--list', storyBranch],
-      { cwd: repoPath }
-    )
+    const { stdout } = await git(['branch', '--list', storyBranch], { cwd: repoPath });
     if (stdout.trim()) {
       // Branch from the story branch
-      return createWorktree(repoPath, 'task', taskId, defaultBranch, storyBranch, title)
+      return createWorktree(repoPath, 'task', taskId, defaultBranch, storyBranch, title);
     }
   } catch {
     // Story branch doesn't exist, fall back to default
   }
 
   // Fall back to branching from default
-  console.warn(
-    `[worktree] Story branch ${storyBranch} not found, using ${defaultBranch}`
-  )
-  return createWorktree(repoPath, 'task', taskId, defaultBranch, undefined, title)
+  console.warn(`[worktree] Story branch ${storyBranch} not found, using ${defaultBranch}`);
+  return createWorktree(repoPath, 'task', taskId, defaultBranch, undefined, title);
 }
 
 /**
@@ -416,20 +438,20 @@ export async function repurposeWorktree(
   type: 'story' | 'task',
   workItemId: number,
   defaultBranch: string,
-  title?: string
+  title?: string,
 ): Promise<string> {
-  const base = `origin/${defaultBranch}`
+  const base = `origin/${defaultBranch}`;
 
   // Fetch latest from origin
-  await git(['fetch', 'origin'], { cwd: repoPath })
+  await git(['fetch', 'origin'], { cwd: repoPath });
 
   // Generate a unique branch name with keywords
-  const branchName = await getUniqueBranchName(repoPath, type, workItemId, title)
+  const branchName = await getUniqueBranchName(repoPath, type, workItemId, title);
 
   // Create and check out new branch from origin/defaultBranch
-  await git(['checkout', '-b', branchName, base], { cwd: worktreePath })
+  await git(['checkout', '-b', branchName, base], { cwd: worktreePath });
 
-  return worktreePath
+  return worktreePath;
 }
 
 /**
@@ -440,11 +462,11 @@ export async function repurposeWorktree(
  */
 export async function getCurrentBranch(worktreePath: string): Promise<string | null> {
   try {
-    const { stdout } = await git(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: worktreePath })
-    const branch = stdout.trim()
-    return branch === 'HEAD' ? null : branch // 'HEAD' means detached
+    const { stdout } = await git(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: worktreePath });
+    const branch = stdout.trim();
+    return branch === 'HEAD' ? null : branch; // 'HEAD' means detached
   } catch {
-    return null
+    return null;
   }
 }
 
@@ -455,21 +477,17 @@ export async function getCurrentBranch(worktreePath: string): Promise<string | n
  * @param worktreePath The path of the worktree to remove
  * @param force Whether to force removal even if there are changes
  */
-export async function removeWorktree(
-  repoPath: string,
-  worktreePath: string,
-  force = false
-): Promise<void> {
-  const args = ['worktree', 'remove', worktreePath]
-  if (force) args.push('--force')
+export async function removeWorktree(repoPath: string, worktreePath: string, force = false): Promise<void> {
+  const args = ['worktree', 'remove', worktreePath];
+  if (force) args.push('--force');
 
-  console.log(`[worktree] Removing worktree at ${worktreePath}`)
-  await git(args, { cwd: repoPath })
+  console.log(`[worktree] Removing worktree at ${worktreePath}`);
+  await git(args, { cwd: repoPath });
 }
 
 /**
  * Prunes stale worktree entries (worktrees whose directory was deleted manually).
  */
 export async function pruneWorktrees(repoPath: string): Promise<void> {
-  await git(['worktree', 'prune'], { cwd: repoPath })
+  await git(['worktree', 'prune'], { cwd: repoPath });
 }

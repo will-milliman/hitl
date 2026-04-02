@@ -19,16 +19,8 @@ export {
   SIGNAL_FILES,
   type SpawnSessionOptions,
   type SpawnSessionResult,
-} from './session'
+} from './session';
 
-export {
-  ensureGlobalHooks,
-} from './hooks'
+export { ensureGlobalHooks } from './hooks';
 
-export {
-  watchSignals,
-  unwatchSignals,
-  unwatchAll,
-  getActiveWatcherCount,
-  isWatching,
-} from './watcher'
+export { watchSignals, unwatchSignals, unwatchAll, getActiveWatcherCount, isWatching } from './watcher';

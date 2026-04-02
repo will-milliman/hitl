@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react'
-import styled from 'styled-components'
-import { trpc } from '../../trpc/client'
+import React, { useEffect, useState } from 'react';
+import styled from 'styled-components';
+
+import { trpc } from '../../trpc/client';
 
 // ─── Styled Components ─────────────────────────────────
 
@@ -12,7 +13,7 @@ const Overlay = styled.div`
   align-items: center;
   justify-content: center;
   z-index: 100;
-`
+`;
 
 const Panel = styled.div`
   background: ${({ theme }) => theme.colors.base};
@@ -23,7 +24,7 @@ const Panel = styled.div`
   display: flex;
   flex-direction: column;
   overflow: hidden;
-`
+`;
 
 const PanelHeader = styled.div`
   display: flex;
@@ -31,14 +32,14 @@ const PanelHeader = styled.div`
   justify-content: space-between;
   padding: 16px 20px;
   border-bottom: 1px solid ${({ theme }) => theme.colors.surface0};
-`
+`;
 
 const PanelTitle = styled.h2`
   font-size: 16px;
   font-weight: 700;
   color: ${({ theme }) => theme.colors.text};
   margin: 0;
-`
+`;
 
 const CloseButton = styled.button`
   background: none;
@@ -53,38 +54,38 @@ const CloseButton = styled.button`
     background: ${({ theme }) => theme.colors.surface0};
     color: ${({ theme }) => theme.colors.text};
   }
-`
+`;
 
 const TabBar = styled.div`
   display: flex;
   border-bottom: 1px solid ${({ theme }) => theme.colors.surface0};
   padding: 0 20px;
-`
+`;
 
 const Tab = styled.button<{ $active: boolean }>`
   background: none;
   border: none;
-  border-bottom: 2px solid ${({ theme, $active }) =>
-    $active ? theme.colors.mauve : 'transparent'};
-  color: ${({ theme, $active }) =>
-    $active ? theme.colors.text : theme.colors.overlay1};
+  border-bottom: 2px solid ${({ theme, $active }) => ($active ? theme.colors.mauve : 'transparent')};
+  color: ${({ theme, $active }) => ($active ? theme.colors.text : theme.colors.overlay1)};
   font-family: ${({ theme }) => theme.fonts.sans};
   font-size: 13px;
   font-weight: 500;
   padding: 10px 16px;
   cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
 
   &:hover {
     color: ${({ theme }) => theme.colors.text};
   }
-`
+`;
 
 const TabContent = styled.div`
   flex: 1;
   overflow-y: auto;
   padding: 20px;
-`
+`;
 
 const Section = styled.div`
   margin-bottom: 24px;
@@ -92,7 +93,7 @@ const Section = styled.div`
   &:last-child {
     margin-bottom: 0;
   }
-`
+`;
 
 const SectionTitle = styled.h3`
   font-size: 13px;
@@ -101,31 +102,31 @@ const SectionTitle = styled.h3`
   text-transform: uppercase;
   letter-spacing: 1px;
   margin: 0 0 12px 0;
-`
+`;
 
 const FieldGroup = styled.div`
   display: flex;
   flex-direction: column;
   gap: 10px;
-`
+`;
 
 const Field = styled.label`
   display: flex;
   flex-direction: column;
   gap: 4px;
-`
+`;
 
 const FieldRow = styled.label`
   display: flex;
   align-items: center;
   gap: 10px;
-`
+`;
 
 const FieldLabel = styled.span`
   font-size: 12px;
   color: ${({ theme }) => theme.colors.subtext0};
   font-weight: 500;
-`
+`;
 
 const Input = styled.input`
   background: ${({ theme }) => theme.colors.surface0};
@@ -145,7 +146,7 @@ const Input = styled.input`
   &::placeholder {
     color: ${({ theme }) => theme.colors.overlay0};
   }
-`
+`;
 
 const Select = styled.select`
   background: ${({ theme }) => theme.colors.surface0};
@@ -167,20 +168,20 @@ const Select = styled.select`
     background: ${({ theme }) => theme.colors.surface0};
     color: ${({ theme }) => theme.colors.text};
   }
-`
+`;
 
 const Toggle = styled.input`
   accent-color: ${({ theme }) => theme.colors.mauve};
   width: 16px;
   height: 16px;
   cursor: pointer;
-`
+`;
 
 const ToggleLabel = styled.span`
   font-size: 13px;
   color: ${({ theme }) => theme.colors.text};
   cursor: pointer;
-`
+`;
 
 const Footer = styled.div`
   display: flex;
@@ -189,15 +190,12 @@ const Footer = styled.div`
   gap: 10px;
   padding: 12px 20px;
   border-top: 1px solid ${({ theme }) => theme.colors.surface0};
-`
+`;
 
 const Button = styled.button<{ $primary?: boolean }>`
-  background: ${({ theme, $primary }) =>
-    $primary ? theme.colors.mauve : theme.colors.surface0};
-  color: ${({ theme, $primary }) =>
-    $primary ? theme.colors.crust : theme.colors.text};
-  border: 1px solid ${({ theme, $primary }) =>
-    $primary ? theme.colors.mauve : theme.colors.surface1};
+  background: ${({ theme, $primary }) => ($primary ? theme.colors.mauve : theme.colors.surface0)};
+  color: ${({ theme, $primary }) => ($primary ? theme.colors.crust : theme.colors.text)};
+  border: 1px solid ${({ theme, $primary }) => ($primary ? theme.colors.mauve : theme.colors.surface1)};
   border-radius: ${({ theme }) => theme.radii.sm};
   padding: 8px 20px;
   font-size: 13px;
@@ -214,7 +212,7 @@ const Button = styled.button<{ $primary?: boolean }>`
     opacity: 0.5;
     cursor: not-allowed;
   }
-`
+`;
 
 const ProfileCard = styled.div`
   background: ${({ theme }) => theme.colors.mantle};
@@ -222,20 +220,20 @@ const ProfileCard = styled.div`
   border-radius: ${({ theme }) => theme.radii.md};
   padding: 12px;
   margin-bottom: 8px;
-`
+`;
 
 const ProfileHeader = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 8px;
-`
+`;
 
 const ProfileName = styled.span`
   font-size: 13px;
   font-weight: 600;
   color: ${({ theme }) => theme.colors.lavender};
-`
+`;
 
 const RemoveButton = styled.button`
   background: none;
@@ -249,66 +247,66 @@ const RemoveButton = styled.button`
   &:hover {
     background: ${({ theme }) => theme.colors.surface0};
   }
-`
+`;
 
 const SmallInput = styled(Input)`
   font-size: 12px;
   padding: 6px 8px;
-`
+`;
 
 const StatusText = styled.span<{ $color?: string }>`
   font-size: 12px;
   color: ${({ $color, theme }) => $color || theme.colors.overlay1};
-`
+`;
 
 // ─── Types ──────────────────────────────────────────────
 
-type TabId = 'azure' | 'cron' | 'profiles' | 'notifications' | 'terminal' | 'about'
+type TabId = 'azure' | 'cron' | 'profiles' | 'notifications' | 'terminal' | 'about';
 
 interface SettingsData {
-  azure: { org: string; project: string; pat: string; team: string }
-  cron: { intervalSeconds: number; idleThresholdSeconds: number }
-  profiles: Record<string, { repoPath: string; defaultBranch: string; description?: string }>
-  notifications: { enabled: boolean; prReviewNeeded: boolean; taskCompleted: boolean; cronErrors: boolean }
-  terminal: { shell: 'pwsh' | 'powershell' | 'cmd' }
+  azure: { org: string; project: string; pat: string; team: string };
+  cron: { intervalSeconds: number; idleThresholdSeconds: number };
+  profiles: Record<string, { repoPath: string; defaultBranch: string; description?: string }>;
+  notifications: { enabled: boolean; prReviewNeeded: boolean; taskCompleted: boolean; cronErrors: boolean };
+  terminal: { shell: 'pwsh' | 'powershell' | 'cmd' };
 }
 
 // ─── Component ──────────────────────────────────────────
 
 interface SettingsPageProps {
-  onClose: () => void
+  onClose: () => void;
 }
 
 export function SettingsPage({ onClose }: SettingsPageProps) {
-  const [activeTab, setActiveTab] = useState<TabId>('azure')
-  const [dirty, setDirty] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [saveMessage, setSaveMessage] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<TabId>('azure');
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
-  const settingsQuery = trpc.getSettings.useQuery()
-  const cronStateQuery = trpc.cronState.useQuery()
-  const updateStatusQuery = trpc.updateStatus.useQuery(undefined, { refetchInterval: 30_000 })
-  const saveMutation = trpc.saveSettings.useMutation()
-  const updateCronMutation = trpc.updateCronState.useMutation()
-  const checkUpdatesMutation = trpc.checkForUpdates.useMutation()
-  const installUpdateMutation = trpc.installUpdate.useMutation()
+  const settingsQuery = trpc.getSettings.useQuery();
+  const cronStateQuery = trpc.cronState.useQuery();
+  const updateStatusQuery = trpc.updateStatus.useQuery(undefined, { refetchInterval: 30_000 });
+  const saveMutation = trpc.saveSettings.useMutation();
+  const updateCronMutation = trpc.updateCronState.useMutation();
+  const checkUpdatesMutation = trpc.checkForUpdates.useMutation();
+  const installUpdateMutation = trpc.installUpdate.useMutation();
 
-  const [formData, setFormData] = useState<SettingsData | null>(null)
+  const [formData, setFormData] = useState<SettingsData | null>(null);
   const [cronFlags, setCronFlags] = useState<{
-    syncEnabled: boolean
-    taskExecutionEnabled: boolean
-    prCheckEnabled: boolean
-  } | null>(null)
+    syncEnabled: boolean;
+    taskExecutionEnabled: boolean;
+    prCheckEnabled: boolean;
+  } | null>(null);
 
   // New profile form state
-  const [newProfileKey, setNewProfileKey] = useState('')
+  const [newProfileKey, setNewProfileKey] = useState('');
 
   // Initialize form data when settings load
   useEffect(() => {
     if (settingsQuery.data && !formData) {
-      setFormData(settingsQuery.data as SettingsData)
+      setFormData(settingsQuery.data as SettingsData);
     }
-  }, [settingsQuery.data, formData])
+  }, [settingsQuery.data, formData]);
 
   useEffect(() => {
     if (cronStateQuery.data && !cronFlags) {
@@ -316,51 +314,51 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
         syncEnabled: cronStateQuery.data.syncEnabled,
         taskExecutionEnabled: cronStateQuery.data.taskExecutionEnabled,
         prCheckEnabled: cronStateQuery.data.prCheckEnabled,
-      })
+      });
     }
-  }, [cronStateQuery.data, cronFlags])
+  }, [cronStateQuery.data, cronFlags]);
 
   const updateField = <K extends keyof SettingsData>(
     section: K,
     key: keyof SettingsData[K],
-    value: SettingsData[K][keyof SettingsData[K]]
+    value: SettingsData[K][keyof SettingsData[K]],
   ) => {
-    if (!formData) return
+    if (!formData) return;
     setFormData({
       ...formData,
       [section]: { ...formData[section], [key]: value },
-    })
-    setDirty(true)
-    setSaveMessage(null)
-  }
+    });
+    setDirty(true);
+    setSaveMessage(null);
+  };
 
   const handleSave = async () => {
-    if (!formData) return
-    setSaving(true)
-    setSaveMessage(null)
+    if (!formData) return;
+    setSaving(true);
+    setSaveMessage(null);
     try {
-      await saveMutation.mutateAsync(formData)
+      await saveMutation.mutateAsync(formData);
 
       // Save cron flags separately (they're in the DB, not settings.json)
       if (cronFlags) {
-        await updateCronMutation.mutateAsync(cronFlags)
+        await updateCronMutation.mutateAsync(cronFlags);
       }
 
-      setDirty(false)
-      setSaveMessage('Settings saved')
+      setDirty(false);
+      setSaveMessage('Settings saved');
     } catch (err) {
-      setSaveMessage(`Error: ${err instanceof Error ? err.message : String(err)}`)
+      setSaveMessage(`Error: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
-  }
+  };
 
   // Handle click outside to close
   const handleOverlayClick = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget) {
-      onClose()
+      onClose();
     }
-  }
+  };
 
   if (!formData) {
     return (
@@ -375,10 +373,10 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
           </TabContent>
         </Panel>
       </Overlay>
-    )
+    );
   }
 
-  const updateStatus = updateStatusQuery.data
+  const updateStatus = updateStatusQuery.data;
 
   return (
     <Overlay onClick={handleOverlayClick}>
@@ -389,19 +387,17 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
         </PanelHeader>
 
         <TabBar>
-          {([
-            ['azure', 'Azure DevOps'],
-            ['cron', 'Cron Jobs'],
-            ['profiles', 'Profiles'],
-            ['notifications', 'Notifications'],
-            ['terminal', 'Terminal'],
-            ['about', 'About'],
-          ] as [TabId, string][]).map(([id, label]) => (
-            <Tab
-              key={id}
-              $active={activeTab === id}
-              onClick={() => setActiveTab(id)}
-            >
+          {(
+            [
+              ['azure', 'Azure DevOps'],
+              ['cron', 'Cron Jobs'],
+              ['profiles', 'Profiles'],
+              ['notifications', 'Notifications'],
+              ['terminal', 'Terminal'],
+              ['about', 'About'],
+            ] as [TabId, string][]
+          ).map(([id, label]) => (
+            <Tab key={id} $active={activeTab === id} onClick={() => setActiveTab(id)}>
               {label}
             </Tab>
           ))}
@@ -463,9 +459,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                       min={10}
                       max={3600}
                       value={formData.cron.intervalSeconds}
-                      onChange={(e) =>
-                        updateField('cron', 'intervalSeconds', parseInt(e.target.value) || 60)
-                      }
+                      onChange={(e) => updateField('cron', 'intervalSeconds', parseInt(e.target.value) || 60)}
                     />
                   </Field>
                   <Field>
@@ -475,9 +469,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                       min={60}
                       max={7200}
                       value={formData.cron.idleThresholdSeconds}
-                      onChange={(e) =>
-                        updateField('cron', 'idleThresholdSeconds', parseInt(e.target.value) || 900)
-                      }
+                      onChange={(e) => updateField('cron', 'idleThresholdSeconds', parseInt(e.target.value) || 900)}
                     />
                   </Field>
                 </FieldGroup>
@@ -485,24 +477,27 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
               <Section>
                 <SectionTitle>Cron Step Flags</SectionTitle>
                 <FieldGroup>
-                  {cronFlags && ([
-                    ['syncEnabled', 'Azure DevOps Sync'],
-                    ['taskExecutionEnabled', 'Task Execution (worktree setup + copilot)'],
-                    ['prCheckEnabled', 'PR Check'],
-                  ] as const).map(([key, label]) => (
-                    <FieldRow key={key}>
-                      <Toggle
-                        type="checkbox"
-                        checked={cronFlags[key]}
-                        onChange={(e) => {
-                          setCronFlags({ ...cronFlags, [key]: e.target.checked })
-                          setDirty(true)
-                          setSaveMessage(null)
-                        }}
-                      />
-                      <ToggleLabel>{label}</ToggleLabel>
-                    </FieldRow>
-                  ))}
+                  {cronFlags &&
+                    (
+                      [
+                        ['syncEnabled', 'Azure DevOps Sync'],
+                        ['taskExecutionEnabled', 'Task Execution (worktree setup + copilot)'],
+                        ['prCheckEnabled', 'PR Check'],
+                      ] as const
+                    ).map(([key, label]) => (
+                      <FieldRow key={key}>
+                        <Toggle
+                          type="checkbox"
+                          checked={cronFlags[key]}
+                          onChange={(e) => {
+                            setCronFlags({ ...cronFlags, [key]: e.target.checked });
+                            setDirty(true);
+                            setSaveMessage(null);
+                          }}
+                        />
+                        <ToggleLabel>{label}</ToggleLabel>
+                      </FieldRow>
+                    ))}
                 </FieldGroup>
               </Section>
             </>
@@ -518,11 +513,11 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                     <ProfileName>{key}</ProfileName>
                     <RemoveButton
                       onClick={() => {
-                        const next = { ...formData.profiles }
-                        delete next[key]
-                        setFormData({ ...formData, profiles: next })
-                        setDirty(true)
-                        setSaveMessage(null)
+                        const next = { ...formData.profiles };
+                        delete next[key];
+                        setFormData({ ...formData, profiles: next });
+                        setDirty(true);
+                        setSaveMessage(null);
                       }}
                     >
                       Remove
@@ -537,10 +532,10 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                           const next = {
                             ...formData.profiles,
                             [key]: { ...profile, repoPath: e.target.value },
-                          }
-                          setFormData({ ...formData, profiles: next })
-                          setDirty(true)
-                          setSaveMessage(null)
+                          };
+                          setFormData({ ...formData, profiles: next });
+                          setDirty(true);
+                          setSaveMessage(null);
                         }}
                         placeholder="C:\path\to\repo"
                       />
@@ -553,10 +548,10 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                           const next = {
                             ...formData.profiles,
                             [key]: { ...profile, defaultBranch: e.target.value },
-                          }
-                          setFormData({ ...formData, profiles: next })
-                          setDirty(true)
-                          setSaveMessage(null)
+                          };
+                          setFormData({ ...formData, profiles: next });
+                          setDirty(true);
+                          setSaveMessage(null);
                         }}
                         placeholder="main"
                       />
@@ -569,10 +564,10 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                           const next = {
                             ...formData.profiles,
                             [key]: { ...profile, description: e.target.value || undefined },
-                          }
-                          setFormData({ ...formData, profiles: next })
-                          setDirty(true)
-                          setSaveMessage(null)
+                          };
+                          setFormData({ ...formData, profiles: next });
+                          setDirty(true);
+                          setSaveMessage(null);
                         }}
                         placeholder="Frontend app, backend service, etc."
                       />
@@ -594,18 +589,18 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                     <Button
                       disabled={!newProfileKey.trim() || newProfileKey in formData.profiles}
                       onClick={() => {
-                        const key = newProfileKey.trim()
-                        if (!key || key in formData.profiles) return
+                        const key = newProfileKey.trim();
+                        if (!key || key in formData.profiles) return;
                         setFormData({
                           ...formData,
                           profiles: {
                             ...formData.profiles,
                             [key]: { repoPath: '', defaultBranch: 'main' },
                           },
-                        })
-                        setNewProfileKey('')
-                        setDirty(true)
-                        setSaveMessage(null)
+                        });
+                        setNewProfileKey('');
+                        setDirty(true);
+                        setSaveMessage(null);
                       }}
                     >
                       Add
@@ -669,9 +664,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                   <FieldLabel>Shell</FieldLabel>
                   <Select
                     value={formData.terminal.shell}
-                    onChange={(e) =>
-                      updateField('terminal', 'shell', e.target.value as 'pwsh' | 'powershell' | 'cmd')
-                    }
+                    onChange={(e) => updateField('terminal', 'shell', e.target.value as 'pwsh' | 'powershell' | 'cmd')}
                   >
                     <option value="pwsh">pwsh (PowerShell 7)</option>
                     <option value="powershell">powershell (Windows PowerShell 5.1)</option>
@@ -679,8 +672,8 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                   </Select>
                 </Field>
                 <StatusText>
-                  Used when opening Copilot sessions in Windows Terminal.
-                  Choose the shell that matches your default terminal profile.
+                  Used when opening Copilot sessions in Windows Terminal. Choose the shell that matches your default terminal
+                  profile.
                 </StatusText>
               </FieldGroup>
             </Section>
@@ -692,9 +685,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
               <Section>
                 <SectionTitle>HITL Orchestrator</SectionTitle>
                 <FieldGroup>
-                  <StatusText>
-                    Human-in-the-Loop Agentic Development Orchestrator
-                  </StatusText>
+                  <StatusText>Human-in-the-Loop Agentic Development Orchestrator</StatusText>
                   <StatusText>Version: 0.1.0</StatusText>
                 </FieldGroup>
               </Section>
@@ -713,32 +704,20 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                               ? `v${updateStatus.version} downloading...`
                               : 'Up to date'}
                       </StatusText>
-                      {updateStatus.error && (
-                        <StatusText $color="#f38ba8">
-                          Error: {updateStatus.error}
-                        </StatusText>
-                      )}
+                      {updateStatus.error && <StatusText $color="#f38ba8">Error: {updateStatus.error}</StatusText>}
                       <FieldRow>
-                        <Button
-                          onClick={() => checkUpdatesMutation.mutate()}
-                          disabled={updateStatus.checking}
-                        >
+                        <Button onClick={() => checkUpdatesMutation.mutate()} disabled={updateStatus.checking}>
                           Check for Updates
                         </Button>
                         {updateStatus.downloaded && (
-                          <Button
-                            $primary
-                            onClick={() => installUpdateMutation.mutate()}
-                          >
+                          <Button $primary onClick={() => installUpdateMutation.mutate()}>
                             Install & Restart
                           </Button>
                         )}
                       </FieldRow>
                     </>
                   ) : (
-                    <StatusText>
-                      Auto-update is only available in packaged builds.
-                    </StatusText>
+                    <StatusText>Auto-update is only available in packaged builds.</StatusText>
                   )}
                 </FieldGroup>
               </Section>
@@ -747,23 +726,13 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
         </TabContent>
 
         <Footer>
-          {saveMessage && (
-            <StatusText
-              $color={saveMessage.startsWith('Error') ? '#f38ba8' : '#a6e3a1'}
-            >
-              {saveMessage}
-            </StatusText>
-          )}
+          {saveMessage && <StatusText $color={saveMessage.startsWith('Error') ? '#f38ba8' : '#a6e3a1'}>{saveMessage}</StatusText>}
           <Button onClick={onClose}>Cancel</Button>
-          <Button
-            $primary
-            disabled={!dirty || saving}
-            onClick={handleSave}
-          >
+          <Button $primary disabled={!dirty || saving} onClick={handleSave}>
             {saving ? 'Saving...' : 'Save'}
           </Button>
         </Footer>
       </Panel>
     </Overlay>
-  )
+  );
 }

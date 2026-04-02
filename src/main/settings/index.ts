@@ -5,49 +5,52 @@
  * editable via the Settings UI and stored here. On startup, env vars
  * still work as fallback defaults if settings haven't been configured.
  */
+import { app } from 'electron';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { join } from 'path';
 
-import { app } from 'electron'
-import { join } from 'path'
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
-import { createLogger } from '../logger'
+import { createLogger } from '../logger';
 
-const logger = createLogger('settings')
+const logger = createLogger('settings');
 
 export interface AppSettings {
   // Azure DevOps
   azure: {
-    org: string
-    project: string
-    pat: string
-    team: string
-  }
+    org: string;
+    project: string;
+    pat: string;
+    team: string;
+  };
 
   // Cron
   cron: {
-    intervalSeconds: number
-    idleThresholdSeconds: number
-  }
+    intervalSeconds: number;
+    idleThresholdSeconds: number;
+  };
 
   // Profiles (mirrors profile.json but editable)
-  profiles: Record<string, {
-    repoPath: string
-    defaultBranch: string
-    description?: string
-    workspace?: string
-  }>
+  profiles: Record<
+    string,
+    {
+      repoPath: string;
+      defaultBranch: string;
+      description?: string;
+      workspace?: string;
+    }
+  >;
 
   // Notifications
   notifications: {
-    enabled: boolean
-    prReviewNeeded: boolean
-    taskCompleted: boolean
-    cronErrors: boolean
-  }
+    enabled: boolean;
+    prReviewNeeded: boolean;
+    taskCompleted: boolean;
+    cronErrors: boolean;
+  };
 
   // Terminal
   terminal: {
-    shell: 'pwsh' | 'powershell' | 'cmd'
-  }
+    shell: 'pwsh' | 'powershell' | 'cmd';
+  };
 }
 
 const DEFAULTS: AppSettings = {
@@ -71,33 +74,33 @@ const DEFAULTS: AppSettings = {
   terminal: {
     shell: 'pwsh',
   },
-}
+};
 
-let cached: AppSettings | null = null
+let cached: AppSettings | null = null;
 
 function getSettingsPath(): string {
   if (!app.isPackaged) {
-    return join(__dirname, '../../settings.json')
+    return join(__dirname, '../../settings.json');
   }
-  const dir = app.getPath('userData')
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-  return join(dir, 'settings.json')
+  const dir = app.getPath('userData');
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  return join(dir, 'settings.json');
 }
 
 /**
  * Loads settings from disk, merging with env var fallbacks and defaults.
  */
 export function loadSettings(): AppSettings {
-  if (cached) return cached
+  if (cached) return cached;
 
-  const path = getSettingsPath()
-  let stored: Partial<AppSettings> = {}
+  const path = getSettingsPath();
+  let stored: Partial<AppSettings> = {};
 
   if (existsSync(path)) {
     try {
-      stored = JSON.parse(readFileSync(path, 'utf-8'))
+      stored = JSON.parse(readFileSync(path, 'utf-8'));
     } catch (err) {
-      logger.error(`Failed to parse settings.json: ${err}`)
+      logger.error(`Failed to parse settings.json: ${err}`);
     }
   }
 
@@ -123,36 +126,36 @@ export function loadSettings(): AppSettings {
     terminal: {
       shell: stored.terminal?.shell ?? DEFAULTS.terminal.shell,
     },
-  }
+  };
 
   // If profiles are empty, try loading from profile.json
   if (Object.keys(settings.profiles).length === 0) {
     try {
-      const profilePath = join(__dirname, '../../profile.json')
+      const profilePath = join(__dirname, '../../profile.json');
       if (existsSync(profilePath)) {
-        settings.profiles = JSON.parse(readFileSync(profilePath, 'utf-8'))
+        settings.profiles = JSON.parse(readFileSync(profilePath, 'utf-8'));
       }
     } catch {
       // Ignore — profiles stay empty
     }
   }
 
-  cached = settings
-  return settings
+  cached = settings;
+  return settings;
 }
 
 /**
  * Saves settings to disk.
  */
 export function saveSettings(settings: AppSettings): void {
-  const path = getSettingsPath()
+  const path = getSettingsPath();
   try {
-    writeFileSync(path, JSON.stringify(settings, null, 2), 'utf-8')
-    cached = settings
-    logger.info('Settings saved')
+    writeFileSync(path, JSON.stringify(settings, null, 2), 'utf-8');
+    cached = settings;
+    logger.info('Settings saved');
   } catch (err) {
-    logger.error(`Failed to save settings: ${err}`)
-    throw err
+    logger.error(`Failed to save settings: ${err}`);
+    throw err;
   }
 }
 
@@ -160,23 +163,23 @@ export function saveSettings(settings: AppSettings): void {
  * Updates a subset of settings (shallow merge per section).
  */
 export function updateSettings(partial: Partial<AppSettings>): AppSettings {
-  const current = loadSettings()
+  const current = loadSettings();
   const updated: AppSettings = {
     azure: { ...current.azure, ...partial.azure },
     cron: { ...current.cron, ...partial.cron },
     profiles: partial.profiles !== undefined ? partial.profiles : current.profiles,
     notifications: { ...current.notifications, ...partial.notifications },
     terminal: { ...current.terminal, ...partial.terminal },
-  }
-  saveSettings(updated)
-  return updated
+  };
+  saveSettings(updated);
+  return updated;
 }
 
 /**
  * Clears the in-memory cache so next load reads from disk.
  */
 export function clearSettingsCache(): void {
-  cached = null
+  cached = null;
 }
 
 /**
@@ -184,12 +187,15 @@ export function clearSettingsCache(): void {
  * Falls back to profile.json if no profiles configured in settings.
  * Excludes the 'mock-repo' profile unless HITL_ENABLE_MOCK_REPO is set.
  */
-export function loadProfiles(): Record<string, { repoPath: string; defaultBranch: string; description?: string; workspace?: string }> {
-  const profiles = { ...loadSettings().profiles }
+export function loadProfiles(): Record<
+  string,
+  { repoPath: string; defaultBranch: string; description?: string; workspace?: string }
+> {
+  const profiles = { ...loadSettings().profiles };
 
   if (!process.env.HITL_ENABLE_MOCK_REPO) {
-    delete profiles['mock-repo']
+    delete profiles['mock-repo'];
   }
 
-  return profiles
+  return profiles;
 }

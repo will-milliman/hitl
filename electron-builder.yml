@@ -6,7 +6,7 @@ directories:
 
 files:
   - out/**/*
-  - "!out/**/*.map"
+  - '!out/**/*.map'
 
 # Bundle Prisma query engine + schema for production
 extraResources:
@@ -20,7 +20,7 @@ extraResources:
 # Include native dependencies
 asar: true
 asarUnpack:
-  - "**/*.node"
+  - '**/*.node'
 
 win:
   target:
@@ -28,7 +28,7 @@ win:
       arch:
         - x64
   icon: build/icon.ico
-  artifactName: "${productName}-Setup-${version}.${ext}"
+  artifactName: '${productName}-Setup-${version}.${ext}'
 
 nsis:
   oneClick: false

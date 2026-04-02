@@ -24,20 +24,20 @@ The end to end workflow will be driven by a cron job:
 #### The Grids
 
 - There will be 4 grids on the page:
-   1. "Profile Assignment"
-   2. "Plan Approval"
-   3. "Task PR Review"
-   4. "Story PR Review"
-   5. "Completed"
+  1.  "Profile Assignment"
+  2.  "Plan Approval"
+  3.  "Task PR Review"
+  4.  "Story PR Review"
+  5.  "Completed"
 - Each grid represents a state in the development loop where a human is required to act in order for the grid item to move to the next grid.
-- Items in each grid will be in a disabled state when an agent is actively working on that item or if they are completed. 
+- Items in each grid will be in a disabled state when an agent is actively working on that item or if they are completed.
 
 ##### Profile Assignment
 
 - The columns in this grid are:
   1. Story Id - this will also be a link that opens the azure item.
   2. Story Title
-  3. Profile - there will be a profile.json file that contains a configuration for different repos. This will give the agent context on where (repo path) to perform their tasks. This is a dropdown that displays the top level keys in profile.json. 
+  3. Profile - there will be a profile.json file that contains a configuration for different repos. This will give the agent context on where (repo path) to perform their tasks. This is a dropdown that displays the top level keys in profile.json.
 - Selecting a profile will indicate to the cron job script that it is ready for an agent to go plan the story which moves it to the Plan Approval grid.
 - If a profile is selected, the cron job script will find an idle git worktree or create a new worktree if all worktrees for the repo are in use. It will then checkout a new story branch `story/<work-item-id>` for the agent to work in.
 - There is no disabled state for this grid.
@@ -70,7 +70,7 @@ The end to end workflow will be driven by a cron job:
 - The cron job will also use the `session.idle` event to check if the session is waiting on human interaction. The disabled state will behave the same way as the Plan Approval grid. If the session is idle, the cron job will wait for certain state changes on the pull request:
   - The cron job will check if the PR has new unresolved comments (if the GH webhook updated the item saying that the PR was updated). If so, it will prompt the copilot cli session with those comments and their context so the agent can respond with an update.
   - The cron job will check if the PR has been merged (if the GH webhook updated the item saying that the PR was updated). If so, the task grid item will be checked and be disabled
-  - The cron job will check if all tasks are checked. If so, the story grid item will be moved to the Story PR Review grid. 
+  - The cron job will check if all tasks are checked. If so, the story grid item will be moved to the Story PR Review grid.
 
 ##### Story PR Review
 
@@ -79,8 +79,8 @@ The end to end workflow will be driven by a cron job:
   2. Story Title
   3. Worktree - this is a link to open vscode at the worktree the agent is planning in.
   4. Session - this is a link to the copilot cli session id. clicking on it will open a windows terminal window and open the session.
-  7. Workspace - this is a link that creates a virtual desktop, opens vscode, opens the copilot cli session in windows terminal, and opens the task in azure and pull request in github for you. This allows the human to work more directly on the task.
-  5. Pull Request - this is a link to relevant pull request on GitHub.
+  5. Workspace - this is a link that creates a virtual desktop, opens vscode, opens the copilot cli session in windows terminal, and opens the task in azure and pull request in github for you. This allows the human to work more directly on the task.
+  6. Pull Request - this is a link to relevant pull request on GitHub.
 - The cron job will also use the `session.idle` event to check if the session is waiting on human interaction. The disabled state will behave the same way as the Plan Approval grid. If the session is idle, the cron job will wait for certain state changes on the pull request:
   - The cron job will check if the PR has new unresolved comments (if the GH webhook updated the item saying that the PR was updated). If so, it will prompt the copilot cli session with those comments and their context so the agent can respond with an update. The agent will make the changes on the story branch.
   - The cron job will check if the PR has been merged (if the GH webhook updated the item saying that the PR was updated). If so, the grid item will be marked complete in the database and moved to the Completed grid.
@@ -99,4 +99,4 @@ The end to end workflow will be driven by a cron job:
 ## Notes
 
 - Every step of the cron job should be behind a flag indicating that it can execute that portion of the script. We don't want the job to be calling a cli every minute for example.
-- The style for the display should use the catppuccin theme and should have a minimalistic display. 
+- The style for the display should use the catppuccin theme and should have a minimalistic display.

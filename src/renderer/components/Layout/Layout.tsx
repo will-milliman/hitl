@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useCallback } from "react";
-import styled from "styled-components";
-import { trpc } from "../../trpc/client";
-import { LogViewer } from "../LogViewer/LogViewer";
-import { SettingsPage } from "../Settings/SettingsPage";
+import React, { useCallback, useEffect, useState } from 'react';
+import styled from 'styled-components';
+
+import { trpc } from '../../trpc/client';
+import { LogViewer } from '../LogViewer/LogViewer';
+import { SettingsPage } from '../Settings/SettingsPage';
 
 const Shell = styled.div`
   display: flex;
@@ -130,10 +131,10 @@ interface LayoutProps {
 }
 
 function formatRelativeTime(date: Date | string | null): string {
-  if (!date) return "never";
-  const d = typeof date === "string" ? new Date(date) : date;
+  if (!date) return 'never';
+  const d = typeof date === 'string' ? new Date(date) : date;
   const seconds = Math.floor((Date.now() - d.getTime()) / 1000);
-  if (seconds < 5) return "just now";
+  if (seconds < 5) return 'just now';
   if (seconds < 60) return `${seconds}s ago`;
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m ago`;
@@ -141,11 +142,7 @@ function formatRelativeTime(date: Date | string | null): string {
   return `${hours}h ago`;
 }
 
-export function Layout({
-  children,
-  connected = false,
-  cronStatus,
-}: LayoutProps) {
+export function Layout({ children, connected = false, cronStatus }: LayoutProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
 
@@ -168,12 +165,12 @@ export function Layout({
   // Keyboard shortcut: Ctrl+, to open settings
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === ",") {
+      if (e.ctrlKey && e.key === ',') {
         e.preventDefault();
         setSettingsOpen((prev) => !prev);
       }
       // Escape to close settings
-      if (e.key === "Escape" && settingsOpen) {
+      if (e.key === 'Escape' && settingsOpen) {
         setSettingsOpen(false);
       }
     },
@@ -181,8 +178,8 @@ export function Layout({
   );
 
   useEffect(() => {
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
 
   return (
@@ -192,17 +189,11 @@ export function Layout({
           <span>HITL</span>
         </Title>
         <WindowControls>
-          <WindowButton
-            onClick={() => windowMinimize.mutate()}
-            title="Minimize"
-          >
+          <WindowButton onClick={() => windowMinimize.mutate()} title="Minimize">
             &#x2500;
           </WindowButton>
-          <WindowButton
-            onClick={() => windowMaximize.mutate()}
-            title={isMaximized ? "Restore" : "Maximize"}
-          >
-            {isMaximized ? "\u29C9" : "\u25A1"}
+          <WindowButton onClick={() => windowMaximize.mutate()} title={isMaximized ? 'Restore' : 'Maximize'}>
+            {isMaximized ? '\u29C9' : '\u25A1'}
           </WindowButton>
           <CloseButton onClick={() => windowClose.mutate()} title="Close">
             &#x2715;
@@ -215,55 +206,33 @@ export function Layout({
           {cronStatus && (
             <>
               {/* Azure connection status */}
-              <StatusGroup
-                title={
-                  cronStatus.azureConfigured
-                    ? "Azure DevOps connected"
-                    : "Azure DevOps not configured"
-                }
-              >
-                <StatusDot
-                  $color={cronStatus.azureConfigured ? "#a6e3a1" : "#fab387"}
-                />
-                {cronStatus.azureConfigured ? "Azure" : "No Azure"}
+              <StatusGroup title={cronStatus.azureConfigured ? 'Azure DevOps connected' : 'Azure DevOps not configured'}>
+                <StatusDot $color={cronStatus.azureConfigured ? '#a6e3a1' : '#fab387'} />
+                {cronStatus.azureConfigured ? 'Azure' : 'No Azure'}
               </StatusGroup>
 
               {/* GitHub connection status */}
               <StatusGroup
-                title={
-                  cronStatus.githubConfigured
-                    ? "GitHub connected (gh CLI)"
-                    : "GitHub not configured (run gh auth login)"
-                }
+                title={cronStatus.githubConfigured ? 'GitHub connected (gh CLI)' : 'GitHub not configured (run gh auth login)'}
               >
-                <StatusDot
-                  $color={cronStatus.githubConfigured ? "#a6e3a1" : "#fab387"}
-                />
-                {cronStatus.githubConfigured ? "GitHub" : "No GitHub"}
+                <StatusDot $color={cronStatus.githubConfigured ? '#a6e3a1' : '#fab387'} />
+                {cronStatus.githubConfigured ? 'GitHub' : 'No GitHub'}
               </StatusGroup>
             </>
           )}
 
           {/* Database connection */}
           <StatusGroup>
-            <StatusDot $color={connected ? "#a6e3a1" : "#f38ba8"} />
-            {connected ? "Database" : "Initializing"}
+            <StatusDot $color={connected ? '#a6e3a1' : '#f38ba8'} />
+            {connected ? 'Database' : 'Initializing'}
           </StatusGroup>
 
           {cronStatus && (
             <>
               {/* Active session watchers */}
-              <StatusGroup
-                title={`${cronStatus.activeWatchers ?? 0} active session watchers`}
-              >
-                <StatusDot
-                  $color={
-                    (cronStatus.activeWatchers ?? 0) > 0 ? "#89b4fa" : "#6c7086"
-                  }
-                />
-                {(cronStatus.activeWatchers ?? 0) > 0
-                  ? `${cronStatus.activeWatchers} sessions`
-                  : "No sessions"}
+              <StatusGroup title={`${cronStatus.activeWatchers ?? 0} active session watchers`}>
+                <StatusDot $color={(cronStatus.activeWatchers ?? 0) > 0 ? '#89b4fa' : '#6c7086'} />
+                {(cronStatus.activeWatchers ?? 0) > 0 ? `${cronStatus.activeWatchers} sessions` : 'No sessions'}
               </StatusGroup>
             </>
           )}
@@ -276,28 +245,20 @@ export function Layout({
                   cronStatus.lastError
                     ? `Error: ${cronStatus.lastError}${
                         cronStatus.stepErrors
-                          ? "\n\n" +
+                          ? '\n\n' +
                             Object.entries(cronStatus.stepErrors)
                               .map(([step, err]) => `${step}: ${err}`)
-                              .join("\n")
-                          : ""
+                              .join('\n')
+                          : ''
                       }`
-                    : `Last sync: ${cronStatus.lastRunAt ?? "never"}`
+                    : `Last sync: ${cronStatus.lastRunAt ?? 'never'}`
                 }
               >
-                <StatusDot
-                  $color={
-                    cronStatus.lastError
-                      ? "#f38ba8"
-                      : cronStatus.running
-                        ? "#89b4fa"
-                        : "#6c7086"
-                  }
-                />
+                <StatusDot $color={cronStatus.lastError ? '#f38ba8' : cronStatus.running ? '#89b4fa' : '#6c7086'} />
                 {cronStatus.running
-                  ? "Syncing..."
+                  ? 'Syncing...'
                   : cronStatus.lastError
-                    ? "Sync error"
+                    ? 'Sync error'
                     : `Sync ${formatRelativeTime(cronStatus.lastRunAt)}`}
               </StatusGroup>
             </>

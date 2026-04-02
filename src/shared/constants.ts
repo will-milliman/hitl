@@ -15,10 +15,10 @@ export const GRID_LABELS: Record<GridState, string> = {
   [GridState.COMPLETED]: 'Completed',
   [GridState.BLOCKED]: 'Blocked',
   [GridState.ABANDONED]: 'Abandoned',
-}
+};
 
-export const IDLE_THRESHOLD_SECONDS = 900 // 15 minutes
-export const CRON_INTERVAL = '* * * * *' // every minute
+export const IDLE_THRESHOLD_SECONDS = 900; // 15 minutes
+export const CRON_INTERVAL = '* * * * *'; // every minute
 
 /** Available Copilot CLI model IDs (passed via --model flag) */
 export const COPILOT_MODELS = [
@@ -37,7 +37,7 @@ export const COPILOT_MODELS = [
   'gpt-5.4-mini',
   'gpt-5-mini',
   'gpt-4.1',
-] as const
+] as const;
 
 /** Default model for new copilot sessions */
-export const DEFAULT_COPILOT_MODEL: string = 'claude-opus-4.6'
+export const DEFAULT_COPILOT_MODEL: string = 'claude-opus-4.6';

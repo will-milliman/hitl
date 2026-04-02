@@ -8,14 +8,13 @@
  *
  * Task PRs target the default branch directly (no story branch hierarchy).
  */
+import { GridState } from '../../shared/constants';
+import { getDb } from '../db';
+import { createLogger } from '../logger';
+import { loadProfiles } from '../settings';
+import { createWorktree, findIdleWorktree, repurposeWorktree } from '../worktree';
 
-import { getDb } from '../db'
-import { createWorktree, findIdleWorktree, repurposeWorktree } from '../worktree'
-import { loadProfiles } from '../settings'
-import { createLogger } from '../logger'
-import { GridState } from '../../shared/constants'
-
-const logger = createLogger('worktree-setup')
+const logger = createLogger('worktree-setup');
 
 /**
  * Sets up worktrees for tasks that have been assigned a profile
@@ -24,7 +23,7 @@ const logger = createLogger('worktree-setup')
  * Called by the cron job when taskExecutionEnabled is true.
  */
 export async function setupTaskWorktrees(): Promise<void> {
-  const db = getDb()
+  const db = getDb();
 
   // Find tasks in TASK_EXECUTION with a profile but no worktree
   const tasks = await db.task.findMany({
@@ -34,99 +33,64 @@ export async function setupTaskWorktrees(): Promise<void> {
       worktreePath: null,
       disabled: true, // Should be disabled (agent is going to work on it)
     },
-  })
+  });
 
-  if (tasks.length === 0) return
+  if (tasks.length === 0) return;
 
-  const profiles = loadProfiles()
+  const profiles = loadProfiles();
 
   // Collect all worktree paths currently assigned to any task/story
   // so findIdleWorktree can skip them.
   const allTasks = await db.task.findMany({
     where: { worktreePath: { not: null } },
     select: { worktreePath: true },
-  })
-  const assignedPaths = new Set(
-    allTasks.map((t) => t.worktreePath).filter((p): p is string => p !== null)
-  )
+  });
+  const assignedPaths = new Set(allTasks.map((t) => t.worktreePath).filter((p): p is string => p !== null));
 
   for (const task of tasks) {
-    const profileKey = task.profileKey!
-    const profile = profiles[profileKey]
+    const profileKey = task.profileKey!;
+    const profile = profiles[profileKey];
 
     if (!profile) {
-      logger.warn(
-        `Task #${task.id}: profile "${profileKey}" not found in profile.json`
-      )
-      continue
+      logger.warn(`Task #${task.id}: profile "${profileKey}" not found in profile.json`);
+      continue;
     }
 
     try {
-      logger.info(
-        `Setting up worktree for task #${task.id} (profile: ${profileKey})`
-      )
+      logger.info(`Setting up worktree for task #${task.id} (profile: ${profileKey})`);
 
-      let worktreePath: string
+      let worktreePath: string;
 
       // Try to reuse an idle worktree first
-      const idle = await findIdleWorktree(profile.repoPath, assignedPaths)
+      const idle = await findIdleWorktree(profile.repoPath, assignedPaths);
 
       if (idle) {
-        logger.info(
-          `Task #${task.id}: reusing idle worktree at ${idle.path}`
-        )
+        logger.info(`Task #${task.id}: reusing idle worktree at ${idle.path}`);
         try {
-          worktreePath = await repurposeWorktree(
-            idle.path,
-            profile.repoPath,
-            'task',
-            task.id,
-            profile.defaultBranch,
-            task.title
-          )
+          worktreePath = await repurposeWorktree(idle.path, profile.repoPath, 'task', task.id, profile.defaultBranch, task.title);
         } catch (err) {
-          const message = err instanceof Error ? err.message : String(err)
-          logger.warn(
-            `Task #${task.id}: failed to repurpose idle worktree, creating new one: ${message}`
-          )
-          worktreePath = await createWorktree(
-            profile.repoPath,
-            'task',
-            task.id,
-            profile.defaultBranch,
-            undefined,
-            task.title
-          )
+          const message = err instanceof Error ? err.message : String(err);
+          logger.warn(`Task #${task.id}: failed to repurpose idle worktree, creating new one: ${message}`);
+          worktreePath = await createWorktree(profile.repoPath, 'task', task.id, profile.defaultBranch, undefined, task.title);
         }
       } else {
         // No idle worktrees — create a new one
-        worktreePath = await createWorktree(
-          profile.repoPath,
-          'task',
-          task.id,
-          profile.defaultBranch,
-          undefined,
-          task.title
-        )
+        worktreePath = await createWorktree(profile.repoPath, 'task', task.id, profile.defaultBranch, undefined, task.title);
       }
 
       // Update the task with the worktree path
       await db.task.update({
         where: { id: task.id },
         data: { worktreePath },
-      })
+      });
 
       // Track the newly assigned path so subsequent tasks don't pick the same one
-      assignedPaths.add(worktreePath)
+      assignedPaths.add(worktreePath);
 
-      logger.info(
-        `Task #${task.id} worktree ready at ${worktreePath}`
-      )
+      logger.info(`Task #${task.id} worktree ready at ${worktreePath}`);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      logger.error(
-        `Failed to create worktree for task #${task.id}: ${message}`
-      )
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error(`Failed to create worktree for task #${task.id}: ${message}`);
       // Don't fail the whole step — continue with other tasks
     }
   }

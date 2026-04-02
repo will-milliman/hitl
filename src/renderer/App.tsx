@@ -1,28 +1,30 @@
-import React, { useState, useMemo } from 'react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { ThemeProvider } from 'styled-components'
-import { ipcLink } from 'electron-trpc/renderer'
-import { trpc } from './trpc/client'
-import { theme } from './styles/theme'
-import { GlobalStyles } from './styles/global'
-import { Layout } from './components/Layout'
-import { ErrorBoundary, Spinner } from './components/common'
-import { ProfileAssignmentGrid } from './grids/ProfileAssignmentGrid'
-import { TaskExecutionGrid } from './grids/TaskExecutionGrid'
-import { ReviewGrid } from './grids/ReviewGrid'
-import { CompletedGrid } from './grids/CompletedGrid'
-import { BlockedGrid } from './grids/BlockedGrid'
-import { AbandonedGrid } from './grids/AbandonedGrid'
-import { GridState } from '../shared/constants'
-import type { Task, ProfileMap } from '../shared/types'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ipcLink } from 'electron-trpc/renderer';
+import React, { useMemo, useState } from 'react';
+import { ThemeProvider } from 'styled-components';
+
+import { GridState } from '../shared/constants';
+import type { ProfileMap, Task } from '../shared/types';
+
+import { Layout } from './components/Layout';
+import { ErrorBoundary, Spinner } from './components/common';
+import { AbandonedGrid } from './grids/AbandonedGrid';
+import { BlockedGrid } from './grids/BlockedGrid';
+import { CompletedGrid } from './grids/CompletedGrid';
+import { ProfileAssignmentGrid } from './grids/ProfileAssignmentGrid';
+import { ReviewGrid } from './grids/ReviewGrid';
+import { TaskExecutionGrid } from './grids/TaskExecutionGrid';
+import { GlobalStyles } from './styles/global';
+import { theme } from './styles/theme';
+import { trpc } from './trpc/client';
 
 export function App() {
-  const [queryClient] = useState(() => new QueryClient())
+  const [queryClient] = useState(() => new QueryClient());
   const [trpcClient] = useState(() =>
     trpc.createClient({
       links: [ipcLink()],
-    })
-  )
+    }),
+  );
 
   return (
     <trpc.Provider client={trpcClient} queryClient={queryClient}>
@@ -35,42 +37,39 @@ export function App() {
         </ThemeProvider>
       </QueryClientProvider>
     </trpc.Provider>
-  )
+  );
 }
 
 function AppShell() {
   // Poll cron status every 10 seconds for live updates
   const cronStatusQuery = trpc.cronStatus.useQuery(undefined, {
     refetchInterval: 10_000,
-  })
+  });
 
   return (
     <Layout connected cronStatus={cronStatusQuery.data ?? null}>
       <AppContent />
     </Layout>
-  )
+  );
 }
 
 function AppContent() {
-  const utils = trpc.useContext()
+  const utils = trpc.useContext();
 
   const tasksQuery = trpc.tasks.useQuery(undefined, {
     refetchInterval: 30_000, // Refresh tasks every 30s to pick up sync changes
-  })
-  const profilesQuery = trpc.profiles.useQuery()
+  });
+  const profilesQuery = trpc.profiles.useQuery();
 
   const assignTaskProfileMutation = trpc.assignTaskProfile.useMutation({
     onSuccess: () => {
-      utils.tasks.invalidate()
+      utils.tasks.invalidate();
     },
-  })
+  });
 
-  const tasks = tasksQuery.data ?? []
-  const profiles = profilesQuery.data ?? {} as ProfileMap
-  const profileKeys = useMemo(
-    () => Object.keys(profiles),
-    [profiles]
-  )
+  const tasks = tasksQuery.data ?? [];
+  const profiles = profilesQuery.data ?? ({} as ProfileMap);
+  const profileKeys = useMemo(() => Object.keys(profiles), [profiles]);
 
   const tasksByState = useMemo(() => {
     const grouped: Record<string, Task[]> = {
@@ -80,22 +79,22 @@ function AppContent() {
       [GridState.COMPLETED]: [],
       [GridState.BLOCKED]: [],
       [GridState.ABANDONED]: [],
-    }
+    };
     for (const task of tasks) {
       if (grouped[task.state]) {
-        grouped[task.state].push(task)
+        grouped[task.state].push(task);
       }
     }
-    return grouped
-  }, [tasks])
+    return grouped;
+  }, [tasks]);
 
   const handleAssignProfile = (taskId: number, profileKey: string, skipCopilot: boolean, model: string) => {
-    assignTaskProfileMutation.mutate({ taskId, profileKey, skipCopilot, model })
-  }
+    assignTaskProfileMutation.mutate({ taskId, profileKey, skipCopilot, model });
+  };
 
   // Show loading spinner on initial load (after all hooks)
   if (tasksQuery.isLoading) {
-    return <Spinner label="Loading work items..." />
+    return <Spinner label="Loading work items..." />;
   }
 
   return (
@@ -105,23 +104,11 @@ function AppContent() {
         profiles={profileKeys}
         onAssignProfile={handleAssignProfile}
       />
-      <TaskExecutionGrid
-        tasks={tasksByState[GridState.TASK_EXECUTION]}
-        profiles={profiles}
-      />
-      <ReviewGrid
-        tasks={tasksByState[GridState.PR_REVIEW]}
-        profiles={profiles}
-      />
-      <CompletedGrid
-        tasks={tasksByState[GridState.COMPLETED]}
-      />
-      <BlockedGrid
-        tasks={tasksByState[GridState.BLOCKED]}
-      />
-      <AbandonedGrid
-        tasks={tasksByState[GridState.ABANDONED]}
-      />
+      <TaskExecutionGrid tasks={tasksByState[GridState.TASK_EXECUTION]} profiles={profiles} />
+      <ReviewGrid tasks={tasksByState[GridState.PR_REVIEW]} profiles={profiles} />
+      <CompletedGrid tasks={tasksByState[GridState.COMPLETED]} />
+      <BlockedGrid tasks={tasksByState[GridState.BLOCKED]} />
+      <AbandonedGrid tasks={tasksByState[GridState.ABANDONED]} />
     </>
-  )
+  );
 }

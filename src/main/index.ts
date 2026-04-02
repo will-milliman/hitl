@@ -1,35 +1,35 @@
 // Load .env before anything else so all modules see env vars
-import { config as dotenvConfig } from 'dotenv'
-import { resolve } from 'path'
+import { config as dotenvConfig } from 'dotenv';
+import { BrowserWindow, Menu, app } from 'electron';
+import { createIPCHandler } from 'electron-trpc/main';
+import { resolve } from 'path';
+import { join } from 'path';
+
+import { ensureGlobalHooks, unwatchAll } from './copilot';
+import { startCron, stopCron } from './cron';
+import { clearConfigCache } from './cron/config';
+import { closeDatabase, initDatabase } from './db';
+import { createLogger, initLogger } from './logger';
+import { appRouter } from './trpc/router';
+import { initAutoUpdater } from './updater';
+import { getWindowStateOptions, trackWindowState, wasMaximized } from './window-state';
 
 // In dev, load from project root. In production, .env is optional.
-dotenvConfig({ path: resolve(__dirname, '../../.env') })
+dotenvConfig({ path: resolve(__dirname, '../../.env') });
 
-import { app, BrowserWindow, Menu } from 'electron'
-import { join } from 'path'
-import { createIPCHandler } from 'electron-trpc/main'
-import { appRouter } from './trpc/router'
-import { initDatabase, closeDatabase } from './db'
-import { startCron, stopCron } from './cron'
-import { clearConfigCache } from './cron/config'
-import { unwatchAll, ensureGlobalHooks } from './copilot'
-import { initLogger, createLogger } from './logger'
-import { initAutoUpdater } from './updater'
-import { getWindowStateOptions, wasMaximized, trackWindowState } from './window-state'
+const logger = createLogger('app');
 
-const logger = createLogger('app')
-
-let mainWindow: BrowserWindow | null = null
+let mainWindow: BrowserWindow | null = null;
 
 async function createWindow(): Promise<void> {
   // Initialize logger
-  initLogger('info')
-  logger.info('Starting HITL Orchestrator')
+  initLogger('info');
+  logger.info('Starting HITL Orchestrator');
 
   // Initialize database before creating the window
-  await initDatabase()
+  await initDatabase();
 
-  const savedState = getWindowStateOptions()
+  const savedState = getWindowStateOptions();
 
   mainWindow = new BrowserWindow({
     ...savedState,
@@ -43,65 +43,65 @@ async function createWindow(): Promise<void> {
       contextIsolation: true,
       nodeIntegration: false,
     },
-  })
+  });
 
   // Restore maximized state after window is created
   if (wasMaximized()) {
-    mainWindow.maximize()
+    mainWindow.maximize();
   }
 
   // Track window position/size changes for next launch
-  trackWindowState(mainWindow)
+  trackWindowState(mainWindow);
 
   // Hide the application menu (File, Edit, etc.)
-  Menu.setApplicationMenu(null)
+  Menu.setApplicationMenu(null);
 
-  createIPCHandler({ router: appRouter, windows: [mainWindow] })
+  createIPCHandler({ router: appRouter, windows: [mainWindow] });
 
   // In dev, load from vite dev server; in prod, load the built file
   if (process.env.ELECTRON_RENDERER_URL) {
-    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
+    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
   }
 
   mainWindow.on('closed', () => {
-    mainWindow = null
-  })
+    mainWindow = null;
+  });
 
   // Clear any cached config so it re-reads env vars (in case loaded before dotenv ran)
-  clearConfigCache()
+  clearConfigCache();
 
   // Set up global Copilot CLI hooks in ~/.copilot/config.json
-  ensureGlobalHooks()
+  ensureGlobalHooks();
 
-  startCron()
+  startCron();
 
   // Auto-updater only in packaged builds
   if (app.isPackaged) {
-    initAutoUpdater()
+    initAutoUpdater();
   }
 }
 
 app.whenReady().then(() => {
-  createWindow()
+  createWindow();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow()
+      createWindow();
     }
-  })
-})
+  });
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
-    app.quit()
+    app.quit();
   }
-})
+});
 
 app.on('before-quit', async () => {
-  logger.info('Shutting down HITL Orchestrator')
-  stopCron()
-  unwatchAll()
-  await closeDatabase()
-})
+  logger.info('Shutting down HITL Orchestrator');
+  stopCron();
+  unwatchAll();
+  await closeDatabase();
+});

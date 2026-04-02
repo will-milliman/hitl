@@ -22,39 +22,39 @@
  *   }
  * }
  */
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { homedir, tmpdir } from 'os';
+import { join } from 'path';
 
-import { join } from 'path'
-import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'fs'
-import { tmpdir, homedir } from 'os'
-import { SIGNAL_FILES } from './session'
+import { SIGNAL_FILES } from './session';
 
 /** Base directory for HITL data outside worktrees */
-const HITL_DATA_BASE = join(tmpdir(), '.hitl-data')
+const HITL_DATA_BASE = join(tmpdir(), '.hitl-data');
 
 /** Directory for global hook scripts (shared across all worktrees) */
-const HOOK_SCRIPTS_DIR = join(HITL_DATA_BASE, 'hook-scripts')
+const HOOK_SCRIPTS_DIR = join(HITL_DATA_BASE, 'hook-scripts');
 
 /** Path to the global Copilot CLI config */
-const COPILOT_CONFIG_PATH = join(homedir(), '.copilot', 'config.json')
+const COPILOT_CONFIG_PATH = join(homedir(), '.copilot', 'config.json');
 
 /** Hook command entry — uses the `powershell` field for Windows */
 interface HookCommandEntry {
-  type: 'command'
-  powershell: string
+  type: 'command';
+  powershell: string;
 }
 
 /** Subset of Copilot config.json that we manage */
 interface CopilotConfig {
-  [key: string]: unknown
+  [key: string]: unknown;
   hooks?: {
-    sessionEnd?: HookCommandEntry[]
-    postToolUse?: HookCommandEntry[]
-    [key: string]: unknown
-  }
+    sessionEnd?: HookCommandEntry[];
+    postToolUse?: HookCommandEntry[];
+    [key: string]: unknown;
+  };
 }
 
 /** Whether global hooks have been set up this session */
-let globalHooksReady = false
+let globalHooksReady = false;
 
 /**
  * Creates a PowerShell hook script that dynamically resolves the signal
@@ -67,7 +67,7 @@ let globalHooksReady = false
  * 4. Writes a signal file with event data
  */
 function createGlobalHookScript(signalName: string): string {
-  const hitlDataBase = HITL_DATA_BASE.replace(/\\/g, '\\\\')
+  const hitlDataBase = HITL_DATA_BASE.replace(/\\/g, '\\\\');
 
   return `# HITL Global Hook Script — writes signal files for session state tracking
 # Signal: ${signalName}
@@ -111,7 +111,7 @@ if (-not (Test-Path $signalDir)) {
 $signalJson = $signal | ConvertTo-Json -Depth 10 -Compress
 $signalFile = Join-Path $signalDir "${signalName}.json"
 $signalJson | Out-File -FilePath $signalFile -Encoding utf8 -Force
-`
+`;
 }
 
 /**
@@ -128,26 +128,26 @@ $signalJson | Out-File -FilePath $signalFile -Encoding utf8 -Force
  */
 export function setupGlobalHooks(): void {
   // Ensure hook scripts directory exists
-  mkdirSync(HOOK_SCRIPTS_DIR, { recursive: true })
+  mkdirSync(HOOK_SCRIPTS_DIR, { recursive: true });
 
   // Write the global hook scripts
-  const sessionEndScript = createGlobalHookScript(SIGNAL_FILES.SESSION_END)
-  const postToolScript = createGlobalHookScript(SIGNAL_FILES.SESSION_ACTIVE)
+  const sessionEndScript = createGlobalHookScript(SIGNAL_FILES.SESSION_END);
+  const postToolScript = createGlobalHookScript(SIGNAL_FILES.SESSION_ACTIVE);
 
-  const sessionEndPath = join(HOOK_SCRIPTS_DIR, 'hitl-session-end.ps1')
-  const postToolPath = join(HOOK_SCRIPTS_DIR, 'hitl-post-tool.ps1')
+  const sessionEndPath = join(HOOK_SCRIPTS_DIR, 'hitl-session-end.ps1');
+  const postToolPath = join(HOOK_SCRIPTS_DIR, 'hitl-post-tool.ps1');
 
-  writeFileSync(sessionEndPath, sessionEndScript, 'utf-8')
-  writeFileSync(postToolPath, postToolScript, 'utf-8')
+  writeFileSync(sessionEndPath, sessionEndScript, 'utf-8');
+  writeFileSync(postToolPath, postToolScript, 'utf-8');
 
   // Read existing config
-  let config: CopilotConfig = {}
+  let config: CopilotConfig = {};
   if (existsSync(COPILOT_CONFIG_PATH)) {
     try {
-      const raw = readFileSync(COPILOT_CONFIG_PATH, 'utf-8')
-      config = JSON.parse(raw) as CopilotConfig
+      const raw = readFileSync(COPILOT_CONFIG_PATH, 'utf-8');
+      config = JSON.parse(raw) as CopilotConfig;
     } catch {
-      console.error('[hooks] Failed to parse existing copilot config, will overwrite hooks section')
+      console.error('[hooks] Failed to parse existing copilot config, will overwrite hooks section');
     }
   }
 
@@ -155,44 +155,43 @@ export function setupGlobalHooks(): void {
   const hitlSessionEnd: HookCommandEntry = {
     type: 'command',
     powershell: `& '${sessionEndPath.replace(/'/g, "''")}'`,
-  }
+  };
 
   const hitlPostTool: HookCommandEntry = {
     type: 'command',
     powershell: `& '${postToolPath.replace(/'/g, "''")}'`,
-  }
+  };
 
   // Merge hooks: preserve any non-HITL hooks, replace HITL hooks.
   // We identify HITL hooks by checking if the powershell command references
   // our hook scripts directory.
-  const existingHooks = config.hooks ?? {}
+  const existingHooks = config.hooks ?? {};
   const isHitlHook = (entry: HookCommandEntry): boolean =>
-    entry.powershell?.includes('hitl-session-end.ps1') ||
-    entry.powershell?.includes('hitl-post-tool.ps1')
+    entry.powershell?.includes('hitl-session-end.ps1') || entry.powershell?.includes('hitl-post-tool.ps1');
 
   // Filter out old HITL hooks from existing entries
   const existingSessionEnd = (existingHooks.sessionEnd ?? []).filter(
-    (e) => !isHitlHook(e as HookCommandEntry)
-  ) as HookCommandEntry[]
+    (e) => !isHitlHook(e as HookCommandEntry),
+  ) as HookCommandEntry[];
   const existingPostTool = (existingHooks.postToolUse ?? []).filter(
-    (e) => !isHitlHook(e as HookCommandEntry)
-  ) as HookCommandEntry[]
+    (e) => !isHitlHook(e as HookCommandEntry),
+  ) as HookCommandEntry[];
 
   // Preserve any other hook events the user may have defined
-  const { sessionEnd: _se, postToolUse: _pt, ...otherHookEvents } = existingHooks
+  const { sessionEnd: _se, postToolUse: _pt, ...otherHookEvents } = existingHooks;
 
   config.hooks = {
     ...otherHookEvents,
     sessionEnd: [...existingSessionEnd, hitlSessionEnd],
     postToolUse: [...existingPostTool, hitlPostTool],
-  }
+  };
 
   // Write the updated config
-  writeFileSync(COPILOT_CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8')
+  writeFileSync(COPILOT_CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
 
-  globalHooksReady = true
-  console.log(`[hooks] Global hooks configured in ${COPILOT_CONFIG_PATH}`)
-  console.log(`[hooks] Hook scripts in ${HOOK_SCRIPTS_DIR}`)
+  globalHooksReady = true;
+  console.log(`[hooks] Global hooks configured in ${COPILOT_CONFIG_PATH}`);
+  console.log(`[hooks] Hook scripts in ${HOOK_SCRIPTS_DIR}`);
 }
 
 /**
@@ -202,6 +201,6 @@ export function setupGlobalHooks(): void {
  * per-worktree `hasHooks()`/`setupHooks()`/`ensureGitignore()` pattern.
  */
 export function ensureGlobalHooks(): void {
-  if (globalHooksReady) return
-  setupGlobalHooks()
+  if (globalHooksReady) return;
+  setupGlobalHooks();
 }

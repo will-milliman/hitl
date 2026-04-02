@@ -15,15 +15,14 @@
  * For unit tests that don't need a real DB, mock `../db` instead:
  *   vi.mock('../db', () => ({ getDb: vi.fn() }))
  */
+import { PrismaClient } from '@prisma/client';
+import { execSync } from 'child_process';
+import { mkdtempSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 
-import { PrismaClient } from '@prisma/client'
-import { execSync } from 'child_process'
-import { join } from 'path'
-import { mkdtempSync, rmSync } from 'fs'
-import { tmpdir } from 'os'
-
-let testPrisma: PrismaClient | null = null
-let tempDir: string | null = null
+let testPrisma: PrismaClient | null = null;
+let tempDir: string | null = null;
 
 /**
  * Creates a fresh test database with the schema applied.
@@ -31,17 +30,17 @@ let tempDir: string | null = null
  */
 export async function setupTestDb(): Promise<PrismaClient> {
   // Create a temp directory for the test database
-  tempDir = mkdtempSync(join(tmpdir(), 'hitl-test-'))
-  const dbPath = join(tempDir, 'test.db')
-  const databaseUrl = `file:${dbPath}`
+  tempDir = mkdtempSync(join(tmpdir(), 'hitl-test-'));
+  const dbPath = join(tempDir, 'test.db');
+  const databaseUrl = `file:${dbPath}`;
 
   // Apply the schema using prisma db push (no migrations needed)
-  const schemaPath = join(__dirname, '../../../prisma/schema.prisma')
+  const schemaPath = join(__dirname, '../../../prisma/schema.prisma');
   execSync(`npx prisma db push --schema="${schemaPath}" --skip-generate --accept-data-loss`, {
     env: { ...process.env, DATABASE_URL: databaseUrl },
     stdio: 'pipe',
     cwd: join(__dirname, '../../..'),
-  })
+  });
 
   // Create the Prisma client for this test database
   testPrisma = new PrismaClient({
@@ -49,18 +48,18 @@ export async function setupTestDb(): Promise<PrismaClient> {
       db: { url: databaseUrl },
     },
     log: [],
-  })
+  });
 
-  await testPrisma.$connect()
+  await testPrisma.$connect();
 
   // Ensure CronState singleton exists (matches initDatabase behavior)
   await testPrisma.cronState.upsert({
     where: { id: 1 },
     create: { id: 1 },
     update: {},
-  })
+  });
 
-  return testPrisma
+  return testPrisma;
 }
 
 /**
@@ -69,9 +68,9 @@ export async function setupTestDb(): Promise<PrismaClient> {
  */
 export function getTestDb(): PrismaClient {
   if (!testPrisma) {
-    throw new Error('Test database not initialized. Call setupTestDb() first.')
+    throw new Error('Test database not initialized. Call setupTestDb() first.');
   }
-  return testPrisma
+  return testPrisma;
 }
 
 /**
@@ -79,15 +78,15 @@ export function getTestDb(): PrismaClient {
  * Re-creates the CronState singleton.
  */
 export async function resetTestDb(): Promise<void> {
-  if (!testPrisma) return
+  if (!testPrisma) return;
 
   // Delete in order to respect foreign key constraints
-  await testPrisma.task.deleteMany()
-  await testPrisma.story.deleteMany()
-  await testPrisma.cronState.deleteMany()
+  await testPrisma.task.deleteMany();
+  await testPrisma.story.deleteMany();
+  await testPrisma.cronState.deleteMany();
 
   // Re-create CronState singleton
-  await testPrisma.cronState.create({ data: { id: 1 } })
+  await testPrisma.cronState.create({ data: { id: 1 } });
 }
 
 /**
@@ -95,16 +94,16 @@ export async function resetTestDb(): Promise<void> {
  */
 export async function teardownTestDb(): Promise<void> {
   if (testPrisma) {
-    await testPrisma.$disconnect()
-    testPrisma = null
+    await testPrisma.$disconnect();
+    testPrisma = null;
   }
 
   if (tempDir) {
     try {
-      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(tempDir, { recursive: true, force: true });
     } catch {
       // Best-effort cleanup — Windows may hold file locks briefly
     }
-    tempDir = null
+    tempDir = null;
   }
 }

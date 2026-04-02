@@ -1,9 +1,10 @@
-import React, { useMemo } from "react";
-import { createColumnHelper } from "@tanstack/react-table";
-import { Grid } from "../components/Grid";
-import { ExternalLink, StatusIndicator } from "../components/common";
-import type { Task } from "../../shared/types";
-import { theme } from "../styles/theme";
+import { createColumnHelper } from '@tanstack/react-table';
+import React, { useMemo } from 'react';
+
+import type { Task } from '../../shared/types';
+import { Grid } from '../components/Grid';
+import { ExternalLink, StatusIndicator } from '../components/common';
+import { theme } from '../styles/theme';
 
 const columnHelper = createColumnHelper<Task>();
 
@@ -15,27 +16,18 @@ export function BlockedGrid({ tasks }: BlockedGridProps) {
   const columns = useMemo(
     () => [
       columnHelper.display({
-        id: "status",
-        header: "",
+        id: 'status',
+        header: '',
         meta: { fixedWidth: 20 },
-        cell: (info) => (
-          <StatusIndicator
-            errorMessage={info.row.original.errorMessage}
-            disabled={info.row.original.disabled}
-          />
-        ),
+        cell: (info) => <StatusIndicator errorMessage={info.row.original.errorMessage} disabled={info.row.original.disabled} />,
       }),
-      columnHelper.accessor("id", {
-        header: "Task Id",
+      columnHelper.accessor('id', {
+        header: 'Task Id',
         meta: { fixedWidth: 70 },
-        cell: (info) => (
-          <ExternalLink href={info.row.original.azureUrl}>
-            {info.getValue()}
-          </ExternalLink>
-        ),
+        cell: (info) => <ExternalLink href={info.row.original.azureUrl}>{info.getValue()}</ExternalLink>,
       }),
-      columnHelper.accessor("title", {
-        header: "Task Title",
+      columnHelper.accessor('title', {
+        header: 'Task Title',
       }),
     ],
     [],

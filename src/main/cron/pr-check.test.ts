@@ -5,8 +5,17 @@
  * checkDraftToReady, checkTaskPRMerges — with mocked DB
  * and external modules.
  */
+import { exec, execFile } from 'child_process';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { GridState } from '../../shared/constants';
+import { createPullRequest, findPullRequest, getPullRequestByUrl, isGhAuthenticated } from '../github';
+import { notifyTaskCompleted } from '../notifications';
+import { makePullRequest, makeTask } from '../test-utils/factories';
+
+// ─── Imports (after mocks) ─────────────────────────────────
+
+import { runPrCheckStep } from './pr-check';
 
 // ─── Module mocks (must be before imports) ─────────────────
 
@@ -17,31 +26,29 @@ vi.mock('../logger', () => ({
     warn: vi.fn(),
     error: vi.fn(),
   }),
-}))
+}));
 
 const mockDb = {
   task: {
     findMany: vi.fn().mockResolvedValue([]),
     update: vi.fn(),
   },
-}
+};
 
 vi.mock('../db', () => ({
   getDb: vi.fn(() => mockDb),
-}))
+}));
 
 vi.mock('../github', () => ({
   isGhAuthenticated: vi.fn().mockResolvedValue(true),
   createPullRequest: vi.fn(),
   findPullRequest: vi.fn().mockResolvedValue(null),
   getPullRequestByUrl: vi.fn(),
-}))
+}));
 
 vi.mock('../worktree', () => ({
-  getBranchName: vi.fn(
-    (type: string, workItemId: number) => `${type}/${workItemId}`
-  ),
-}))
+  getBranchName: vi.fn((type: string, workItemId: number) => `${type}/${workItemId}`),
+}));
 
 vi.mock('../settings', () => ({
   loadProfiles: vi.fn().mockReturnValue({
@@ -51,70 +58,56 @@ vi.mock('../settings', () => ({
       description: 'Test profile',
     },
   }),
-}))
+}));
 
 vi.mock('../notifications', () => ({
   notifyTaskCompleted: vi.fn(),
-}))
+}));
 
 // Mock child_process for pushBranch (execFile) and closeVirtualDesktop (exec)
 vi.mock('child_process', () => ({
   execFile: vi.fn((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
-    cb(null, { stdout: '', stderr: '' })
+    cb(null, { stdout: '', stderr: '' });
   }),
   exec: vi.fn((_cmd: string, _opts: unknown, cb: Function) => {
-    cb(null, { stdout: '', stderr: '' })
+    cb(null, { stdout: '', stderr: '' });
   }),
-}))
+}));
 
 vi.mock('util', async () => {
-  const actual = await vi.importActual('util')
+  const actual = await vi.importActual('util');
   return {
     ...actual,
     promisify: vi.fn((fn: Function) => {
       return (...args: unknown[]) => {
         return new Promise((resolve, reject) => {
           fn(...args, (err: Error | null, result: unknown) => {
-            if (err) reject(err)
-            else resolve(result)
-          })
-        })
-      }
+            if (err) reject(err);
+            else resolve(result);
+          });
+        });
+      };
     }),
-  }
-})
-
-// ─── Imports (after mocks) ─────────────────────────────────
-
-import { runPrCheckStep } from './pr-check'
-import {
-  isGhAuthenticated,
-  createPullRequest,
-  findPullRequest,
-  getPullRequestByUrl,
-} from '../github'
-import { notifyTaskCompleted } from '../notifications'
-import { makeTask, makePullRequest } from '../test-utils/factories'
-import { GridState } from '../../shared/constants'
-import { exec, execFile } from 'child_process'
+  };
+});
 
 // ─── Tests ─────────────────────────────────────────────────
 
 describe('runPrCheckStep', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.clearAllMocks();
     // Reset defaults
-    mockDb.task.findMany.mockResolvedValue([])
-    vi.mocked(isGhAuthenticated).mockResolvedValue(true)
-  })
+    mockDb.task.findMany.mockResolvedValue([]);
+    vi.mocked(isGhAuthenticated).mockResolvedValue(true);
+  });
 
   it('skips everything when gh CLI is not authenticated', async () => {
-    vi.mocked(isGhAuthenticated).mockResolvedValueOnce(false)
+    vi.mocked(isGhAuthenticated).mockResolvedValueOnce(false);
 
-    await runPrCheckStep()
+    await runPrCheckStep();
 
-    expect(mockDb.task.findMany).not.toHaveBeenCalled()
-  })
+    expect(mockDb.task.findMany).not.toHaveBeenCalled();
+  });
 
   describe('createDraftPRs sub-step', () => {
     it('creates draft PR for task in TASK_EXECUTION with no prUrl', async () => {
@@ -129,20 +122,20 @@ describe('runPrCheckStep', () => {
           disabled: false,
         }),
         story: { id: 90001, title: 'Test story' },
-      }
+      };
 
       // createDraftPRs query
       mockDb.task.findMany
-        .mockResolvedValueOnce([task])  // createDraftPRs
-        .mockResolvedValueOnce([])       // checkDraftToReady
-        .mockResolvedValueOnce([])       // checkTaskPRMerges
+        .mockResolvedValueOnce([task]) // createDraftPRs
+        .mockResolvedValueOnce([]) // checkDraftToReady
+        .mockResolvedValueOnce([]); // checkTaskPRMerges
 
-      vi.mocked(findPullRequest).mockResolvedValueOnce(null) // no existing PR
+      vi.mocked(findPullRequest).mockResolvedValueOnce(null); // no existing PR
       vi.mocked(createPullRequest).mockResolvedValueOnce(
-        makePullRequest({ number: 201, url: 'https://github.com/org/repo/pull/201', isDraft: true })
-      )
+        makePullRequest({ number: 201, url: 'https://github.com/org/repo/pull/201', isDraft: true }),
+      );
 
-      await runPrCheckStep()
+      await runPrCheckStep();
 
       expect(createPullRequest).toHaveBeenCalledWith(
         'C:/repos/test-wt',
@@ -151,13 +144,13 @@ describe('runPrCheckStep', () => {
           head: 'task/1001',
           base: 'main',
           draft: true,
-        })
-      )
+        }),
+      );
       expect(mockDb.task.update).toHaveBeenCalledWith({
         where: { id: 1001 },
         data: { prUrl: 'https://github.com/org/repo/pull/201' },
-      })
-    })
+      });
+    });
 
     it('uses existing PR URL when PR already exists on GitHub', async () => {
       const task = {
@@ -171,36 +164,31 @@ describe('runPrCheckStep', () => {
           disabled: false,
         }),
         story: null,
-      }
+      };
 
-      mockDb.task.findMany
-        .mockResolvedValueOnce([task])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
+      mockDb.task.findMany.mockResolvedValueOnce([task]).mockResolvedValueOnce([]).mockResolvedValueOnce([]);
 
-      vi.mocked(findPullRequest).mockResolvedValueOnce(
-        makePullRequest({ url: 'https://github.com/org/repo/pull/99' })
-      )
+      vi.mocked(findPullRequest).mockResolvedValueOnce(makePullRequest({ url: 'https://github.com/org/repo/pull/99' }));
 
-      await runPrCheckStep()
+      await runPrCheckStep();
 
       // Should NOT create a new PR
-      expect(createPullRequest).not.toHaveBeenCalled()
+      expect(createPullRequest).not.toHaveBeenCalled();
       // Should save the existing PR URL
       expect(mockDb.task.update).toHaveBeenCalledWith({
         where: { id: 1001 },
         data: { prUrl: 'https://github.com/org/repo/pull/99' },
-      })
-    })
+      });
+    });
 
     it('does nothing when no tasks need draft PRs', async () => {
-      mockDb.task.findMany.mockResolvedValue([])
+      mockDb.task.findMany.mockResolvedValue([]);
 
-      await runPrCheckStep()
+      await runPrCheckStep();
 
-      expect(createPullRequest).not.toHaveBeenCalled()
-    })
-  })
+      expect(createPullRequest).not.toHaveBeenCalled();
+    });
+  });
 
   describe('checkDraftToReady sub-step', () => {
     it('moves task to PR_REVIEW when PR is no longer a draft', async () => {
@@ -209,24 +197,22 @@ describe('runPrCheckStep', () => {
         state: GridState.TASK_EXECUTION,
         prUrl: 'https://github.com/org/repo/pull/101',
         worktreePath: 'C:/repos/test-wt',
-      })
+      });
 
       mockDb.task.findMany
-        .mockResolvedValueOnce([])      // createDraftPRs
-        .mockResolvedValueOnce([task])   // checkDraftToReady
-        .mockResolvedValueOnce([])       // checkTaskPRMerges
+        .mockResolvedValueOnce([]) // createDraftPRs
+        .mockResolvedValueOnce([task]) // checkDraftToReady
+        .mockResolvedValueOnce([]); // checkTaskPRMerges
 
-      vi.mocked(getPullRequestByUrl).mockResolvedValueOnce(
-        makePullRequest({ isDraft: false })
-      )
+      vi.mocked(getPullRequestByUrl).mockResolvedValueOnce(makePullRequest({ isDraft: false }));
 
-      await runPrCheckStep()
+      await runPrCheckStep();
 
       expect(mockDb.task.update).toHaveBeenCalledWith({
         where: { id: 1001 },
         data: { state: GridState.PR_REVIEW },
-      })
-    })
+      });
+    });
 
     it('does not change state when PR is still a draft', async () => {
       const task = makeTask({
@@ -234,21 +220,16 @@ describe('runPrCheckStep', () => {
         state: GridState.TASK_EXECUTION,
         prUrl: 'https://github.com/org/repo/pull/101',
         worktreePath: 'C:/repos/test-wt',
-      })
+      });
 
-      mockDb.task.findMany
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([task])
-        .mockResolvedValueOnce([])
+      mockDb.task.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([task]).mockResolvedValueOnce([]);
 
-      vi.mocked(getPullRequestByUrl).mockResolvedValueOnce(
-        makePullRequest({ isDraft: true })
-      )
+      vi.mocked(getPullRequestByUrl).mockResolvedValueOnce(makePullRequest({ isDraft: true }));
 
-      await runPrCheckStep()
+      await runPrCheckStep();
 
-      expect(mockDb.task.update).not.toHaveBeenCalled()
-    })
+      expect(mockDb.task.update).not.toHaveBeenCalled();
+    });
 
     it('handles errors gracefully without crashing the step', async () => {
       const task = makeTask({
@@ -256,21 +237,16 @@ describe('runPrCheckStep', () => {
         state: GridState.TASK_EXECUTION,
         prUrl: 'https://github.com/org/repo/pull/101',
         worktreePath: 'C:/repos/test-wt',
-      })
+      });
 
-      mockDb.task.findMany
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([task])
-        .mockResolvedValueOnce([])
+      mockDb.task.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([task]).mockResolvedValueOnce([]);
 
-      vi.mocked(getPullRequestByUrl).mockRejectedValueOnce(
-        new Error('gh CLI timeout')
-      )
+      vi.mocked(getPullRequestByUrl).mockRejectedValueOnce(new Error('gh CLI timeout'));
 
       // Should not throw
-      await expect(runPrCheckStep()).resolves.not.toThrow()
-    })
-  })
+      await expect(runPrCheckStep()).resolves.not.toThrow();
+    });
+  });
 
   describe('checkTaskPRMerges sub-step', () => {
     it('moves task to COMPLETED and cleans up when PR is merged', async () => {
@@ -280,18 +256,16 @@ describe('runPrCheckStep', () => {
         prUrl: 'https://github.com/org/repo/pull/101',
         prMerged: false,
         worktreePath: 'C:/repos/test-wt',
-      })
+      });
 
       mockDb.task.findMany
-        .mockResolvedValueOnce([])      // createDraftPRs
-        .mockResolvedValueOnce([])       // checkDraftToReady
-        .mockResolvedValueOnce([task])   // checkTaskPRMerges
+        .mockResolvedValueOnce([]) // createDraftPRs
+        .mockResolvedValueOnce([]) // checkDraftToReady
+        .mockResolvedValueOnce([task]); // checkTaskPRMerges
 
-      vi.mocked(getPullRequestByUrl).mockResolvedValueOnce(
-        makePullRequest({ state: 'MERGED' })
-      )
+      vi.mocked(getPullRequestByUrl).mockResolvedValueOnce(makePullRequest({ state: 'MERGED' }));
 
-      await runPrCheckStep()
+      await runPrCheckStep();
 
       // Verify COMPLETED state transition
       expect(mockDb.task.update).toHaveBeenCalledWith({
@@ -302,30 +276,26 @@ describe('runPrCheckStep', () => {
           disabled: true,
           completedAt: expect.any(Date),
         }),
-      })
-      expect(notifyTaskCompleted).toHaveBeenCalledWith(1001, task.title)
+      });
+      expect(notifyTaskCompleted).toHaveBeenCalledWith(1001, task.title);
 
       // Verify worktree was parked (DB fields cleared)
       expect(mockDb.task.update).toHaveBeenCalledWith({
         where: { id: 1001 },
         data: { worktreePath: null, sessionId: null },
-      })
+      });
 
       // Verify branch was detached before parking
       expect(execFile).toHaveBeenCalledWith(
         'git',
         ['checkout', '--detach'],
         expect.objectContaining({ cwd: 'C:/repos/test-wt' }),
-        expect.any(Function)
-      )
+        expect.any(Function),
+      );
 
       // Verify virtual desktop close was attempted (PowerShell exec)
-      expect(exec).toHaveBeenCalledWith(
-        expect.stringContaining('Task #1001'),
-        expect.any(Object),
-        expect.any(Function)
-      )
-    })
+      expect(exec).toHaveBeenCalledWith(expect.stringContaining('Task #1001'), expect.any(Object), expect.any(Function));
+    });
 
     it('does not change state when PR is still open', async () => {
       const task = makeTask({
@@ -334,22 +304,17 @@ describe('runPrCheckStep', () => {
         prUrl: 'https://github.com/org/repo/pull/101',
         prMerged: false,
         worktreePath: 'C:/repos/test-wt',
-      })
+      });
 
-      mockDb.task.findMany
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([task])
+      mockDb.task.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce([task]);
 
-      vi.mocked(getPullRequestByUrl).mockResolvedValueOnce(
-        makePullRequest({ state: 'OPEN' })
-      )
+      vi.mocked(getPullRequestByUrl).mockResolvedValueOnce(makePullRequest({ state: 'OPEN' }));
 
-      await runPrCheckStep()
+      await runPrCheckStep();
 
       // Should NOT update the task state
-      expect(mockDb.task.update).not.toHaveBeenCalled()
-    })
+      expect(mockDb.task.update).not.toHaveBeenCalled();
+    });
 
     it('moves task to ABANDONED and cleans up when PR is closed', async () => {
       const task = makeTask({
@@ -358,19 +323,17 @@ describe('runPrCheckStep', () => {
         prUrl: 'https://github.com/org/repo/pull/101',
         prMerged: false,
         worktreePath: 'C:/repos/test-wt',
-      })
+      });
 
       mockDb.task.findMany
-        .mockResolvedValueOnce([])      // createDraftPRs
-        .mockResolvedValueOnce([])      // checkDraftToReady
-        .mockResolvedValueOnce([])      // updatePrReadiness
-        .mockResolvedValueOnce([task])  // checkTaskPRMerges
+        .mockResolvedValueOnce([]) // createDraftPRs
+        .mockResolvedValueOnce([]) // checkDraftToReady
+        .mockResolvedValueOnce([]) // updatePrReadiness
+        .mockResolvedValueOnce([task]); // checkTaskPRMerges
 
-      vi.mocked(getPullRequestByUrl).mockResolvedValueOnce(
-        makePullRequest({ state: 'CLOSED' })
-      )
+      vi.mocked(getPullRequestByUrl).mockResolvedValueOnce(makePullRequest({ state: 'CLOSED' }));
 
-      await runPrCheckStep()
+      await runPrCheckStep();
 
       // Verify ABANDONED state transition
       expect(mockDb.task.update).toHaveBeenCalledWith({
@@ -379,25 +342,25 @@ describe('runPrCheckStep', () => {
           state: GridState.ABANDONED,
           disabled: true,
         }),
-      })
+      });
 
       // Should NOT notify (not a completion)
-      expect(notifyTaskCompleted).not.toHaveBeenCalled()
+      expect(notifyTaskCompleted).not.toHaveBeenCalled();
 
       // Verify worktree was parked (DB fields cleared)
       expect(mockDb.task.update).toHaveBeenCalledWith({
         where: { id: 1001 },
         data: { worktreePath: null, sessionId: null },
-      })
+      });
 
       // Verify branch was detached before parking
       expect(execFile).toHaveBeenCalledWith(
         'git',
         ['checkout', '--detach'],
         expect.objectContaining({ cwd: 'C:/repos/test-wt' }),
-        expect.any(Function)
-      )
-    })
+        expect.any(Function),
+      );
+    });
 
     it('handles errors gracefully without crashing the step', async () => {
       const task = makeTask({
@@ -405,20 +368,15 @@ describe('runPrCheckStep', () => {
         state: GridState.PR_REVIEW,
         prUrl: 'https://github.com/org/repo/pull/101',
         worktreePath: 'C:/repos/test-wt',
-      })
+      });
 
-      mockDb.task.findMany
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([task])
+      mockDb.task.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce([task]);
 
-      vi.mocked(getPullRequestByUrl).mockRejectedValueOnce(
-        new Error('gh CLI timeout')
-      )
+      vi.mocked(getPullRequestByUrl).mockRejectedValueOnce(new Error('gh CLI timeout'));
 
       // Should not throw
-      await expect(runPrCheckStep()).resolves.not.toThrow()
-    })
+      await expect(runPrCheckStep()).resolves.not.toThrow();
+    });
 
     it('completes task even when cleanup fails', async () => {
       const task = makeTask({
@@ -427,32 +385,23 @@ describe('runPrCheckStep', () => {
         prUrl: 'https://github.com/org/repo/pull/101',
         prMerged: false,
         worktreePath: 'C:/repos/test-wt',
-      })
+      });
 
-      mockDb.task.findMany
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([task])
+      mockDb.task.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce([task]);
 
-      vi.mocked(getPullRequestByUrl).mockResolvedValueOnce(
-        makePullRequest({ state: 'MERGED' })
-      )
+      vi.mocked(getPullRequestByUrl).mockResolvedValueOnce(makePullRequest({ state: 'MERGED' }));
 
       // First update succeeds (COMPLETED), second fails (park worktree)
-      mockDb.task.update
-        .mockResolvedValueOnce({})
-        .mockRejectedValueOnce(new Error('DB error'))
+      mockDb.task.update.mockResolvedValueOnce({}).mockRejectedValueOnce(new Error('DB error'));
 
       // Virtual desktop close also fails
-      vi.mocked(exec).mockImplementationOnce(
-        ((_cmd: unknown, _opts: unknown, cb: unknown) => {
-          ;(cb as Function)(new Error('PowerShell not found'))
-          return {} as any
-        }) as any
-      )
+      vi.mocked(exec).mockImplementationOnce(((_cmd: unknown, _opts: unknown, cb: unknown) => {
+        (cb as Function)(new Error('PowerShell not found'));
+        return {} as any;
+      }) as any);
 
       // Should not throw — cleanup failures are non-fatal
-      await expect(runPrCheckStep()).resolves.not.toThrow()
+      await expect(runPrCheckStep()).resolves.not.toThrow();
 
       // Verify COMPLETED transition still happened
       expect(mockDb.task.update).toHaveBeenCalledWith({
@@ -460,7 +409,7 @@ describe('runPrCheckStep', () => {
         data: expect.objectContaining({
           state: GridState.COMPLETED,
         }),
-      })
-    })
-  })
-})
+      });
+    });
+  });
+});
