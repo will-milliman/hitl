@@ -11,6 +11,12 @@
     "description": "Integrate App",
     "workspace": "/monorepo/desktop/ui/.vscode/full-stack.code-workspace"
   },
+  "icun": {
+    "repoPath": "C:/Projects/IntegrateCoreUiNext",
+    "defaultBranch": "main",
+    "description": "ICUN",
+    "workspace": "/.vscode/IntegrateCoreUiNext.code-workspace"
+  },
   "mock-repo": {
     "repoPath": "C:/Projects/hitl-mock-repo",
     "defaultBranch": "main",

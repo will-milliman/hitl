@@ -10,8 +10,14 @@ import { theme } from '../styles/theme';
 
 const columnHelper = createColumnHelper<Task>();
 
-const ExecuteButton = styled.button`
-  background: ${({ theme }) => theme.colors.green};
+const Separator = styled.div`
+  width: 1px;
+  height: 20px;
+  background: ${({ theme }) => theme.colors.surface2};
+`;
+
+const GridButton = styled.button<{ $color: string }>`
+  background: ${({ $color }) => $color};
   color: ${({ theme }) => theme.colors.base};
   border: none;
   padding: 5px 10px;
@@ -37,9 +43,10 @@ interface ProfileAssignmentGridProps {
   tasks: Task[];
   profiles: string[];
   onAssignProfile: (taskId: number, profileKey: string, skipCopilot: boolean, model: string) => void;
+  onMarkNonHitl: (taskId: number) => void;
 }
 
-export function ProfileAssignmentGrid({ tasks, profiles, onAssignProfile }: ProfileAssignmentGridProps) {
+export function ProfileAssignmentGrid({ tasks, profiles, onAssignProfile, onMarkNonHitl }: ProfileAssignmentGridProps) {
   const [skipCopilotMap, setSkipCopilotMap] = React.useState<Record<number, boolean>>({});
 
   // Local state for selected profiles (not yet executed)
@@ -66,8 +73,8 @@ export function ProfileAssignmentGrid({ tasks, profiles, onAssignProfile }: Prof
       }),
       columnHelper.display({
         id: 'skipCopilot',
-        header: 'Manual',
-        meta: { fixedWidth: 70 },
+        header: 'Manual Execution',
+        meta: { fixedWidth: 140 },
         cell: (info) => {
           const taskId = info.row.original.id;
           const checked = skipCopilotMap[taskId] ?? false;
@@ -137,7 +144,8 @@ export function ProfileAssignmentGrid({ tasks, profiles, onAssignProfile }: Prof
           const hasProfile = profileKey !== '';
           const model = selectedModelMap[taskId] ?? info.row.original.model ?? DEFAULT_COPILOT_MODEL;
           return (
-            <ExecuteButton
+            <GridButton
+              $color={theme.colors.green}
               disabled={!hasProfile}
               onClick={() => {
                 if (hasProfile) {
@@ -147,12 +155,34 @@ export function ProfileAssignmentGrid({ tasks, profiles, onAssignProfile }: Prof
               title={hasProfile ? 'Move task to Task Execution' : 'Select a profile first'}
             >
               Execute
-            </ExecuteButton>
+            </GridButton>
+          );
+        },
+      }),
+      columnHelper.display({
+        id: 'separator',
+        header: '',
+        meta: { fixedWidth: 40 },
+        cell: () => <Separator />,
+      }),
+      columnHelper.display({
+        id: 'nonHitl',
+        meta: { fixedWidth: 126 },
+        cell: (info) => {
+          const taskId = info.row.original.id;
+          return (
+            <GridButton
+              $color={theme.colors.peach}
+              onClick={() => onMarkNonHitl(taskId)}
+              title="Mark as Non-HITL (no task execution or PR needed)"
+            >
+              Exit HITL Flow
+            </GridButton>
           );
         },
       }),
     ],
-    [profiles, onAssignProfile, skipCopilotMap, selectedProfileMap, selectedModelMap],
+    [profiles, onAssignProfile, onMarkNonHitl, skipCopilotMap, selectedProfileMap, selectedModelMap],
   );
 
   return <Grid title="Profile Assignment" data={tasks} columns={columns} accentColor={theme.colors.mauve} />;

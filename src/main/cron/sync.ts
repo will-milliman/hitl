@@ -152,11 +152,12 @@ export async function syncWorkItems(): Promise<void> {
   }
 
   // 7. Remove active tasks that no longer appear in the sprint query
-  // COMPLETED and ABANDONED tasks are excluded here because they naturally
-  // leave the sprint query when closed — they are checked separately in step 8.
+  // COMPLETED, ABANDONED, and NON_HITL tasks are excluded here because they
+  // naturally leave the sprint query when closed — they are checked separately
+  // in step 8.
   const localActiveTasks = await db.task.findMany({
     where: {
-      state: { notIn: [GridState.COMPLETED, GridState.ABANDONED] },
+      state: { notIn: [GridState.COMPLETED, GridState.ABANDONED, GridState.NON_HITL] },
     },
     select: { id: true },
   });
@@ -170,12 +171,12 @@ export async function syncWorkItems(): Promise<void> {
     logger.info(`Removed ${removedActiveIds.length} active tasks no longer in Azure: ${removedActiveIds.join(', ')}`);
   }
 
-  // 8. Remove completed/abandoned tasks that were deleted from Azure
+  // 8. Remove completed/abandoned/non-hitl tasks that were deleted from Azure
   // These tasks won't appear in the sprint query (which filters by New/Active),
   // so we check Azure directly to see if the work items still exist.
   const localTerminalTasks = await db.task.findMany({
     where: {
-      state: { in: [GridState.COMPLETED, GridState.ABANDONED] },
+      state: { in: [GridState.COMPLETED, GridState.ABANDONED, GridState.NON_HITL] },
     },
     select: { id: true },
   });
@@ -202,7 +203,7 @@ export async function syncWorkItems(): Promise<void> {
         where: { id: { in: removedTerminalIds } },
       });
       logger.info(
-        `Removed ${removedTerminalIds.length} completed/abandoned tasks deleted from Azure: ${removedTerminalIds.join(', ')}`,
+        `Removed ${removedTerminalIds.length} completed/abandoned/non-hitl tasks deleted from Azure: ${removedTerminalIds.join(', ')}`,
       );
     }
   }

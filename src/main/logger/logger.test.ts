@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createLogger, getRecentLogs, log } from './index';
 
@@ -20,10 +20,28 @@ vi.mock('fs', () => ({
 }));
 
 describe('logger', () => {
+  // Suppress all console output during logger tests to keep CI/commit hooks quiet
+  let consoleSpy: {
+    debug: ReturnType<typeof vi.spyOn>;
+    log: ReturnType<typeof vi.spyOn>;
+    warn: ReturnType<typeof vi.spyOn>;
+    error: ReturnType<typeof vi.spyOn>;
+  };
+
   beforeEach(() => {
-    // Clear the ring buffer by reading all entries — we need a clean slate.
-    // Since we can't access logBuffer directly, we'll use getRecentLogs and
-    // just be aware of existing entries from prior tests.
+    consoleSpy = {
+      debug: vi.spyOn(console, 'debug').mockImplementation(() => {}),
+      log: vi.spyOn(console, 'log').mockImplementation(() => {}),
+      warn: vi.spyOn(console, 'warn').mockImplementation(() => {}),
+      error: vi.spyOn(console, 'error').mockImplementation(() => {}),
+    };
+  });
+
+  afterEach(() => {
+    consoleSpy.debug.mockRestore();
+    consoleSpy.log.mockRestore();
+    consoleSpy.warn.mockRestore();
+    consoleSpy.error.mockRestore();
   });
 
   describe('log()', () => {
@@ -59,35 +77,21 @@ describe('logger', () => {
     });
 
     it('outputs to console for each level', () => {
-      const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
-      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
       log('debug', 'test', 'debug msg');
       log('info', 'test', 'info msg');
       log('warn', 'test', 'warn msg');
       log('error', 'test', 'error msg');
 
-      expect(debugSpy).toHaveBeenCalledWith('[test] debug msg');
-      expect(logSpy).toHaveBeenCalledWith('[test] info msg');
-      expect(warnSpy).toHaveBeenCalledWith('[test] warn msg');
-      expect(errorSpy).toHaveBeenCalledWith('[test] error msg');
-
-      debugSpy.mockRestore();
-      logSpy.mockRestore();
-      warnSpy.mockRestore();
-      errorSpy.mockRestore();
+      expect(consoleSpy.debug).toHaveBeenCalledWith('[test] debug msg');
+      expect(consoleSpy.log).toHaveBeenCalledWith('[test] info msg');
+      expect(consoleSpy.warn).toHaveBeenCalledWith('[test] warn msg');
+      expect(consoleSpy.error).toHaveBeenCalledWith('[test] error msg');
     });
 
     it('includes JSON data in console output', () => {
-      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-
       log('info', 'test', 'msg', { foo: 'bar' });
 
-      expect(logSpy).toHaveBeenCalledWith('[test] msg {"foo":"bar"}');
-
-      logSpy.mockRestore();
+      expect(consoleSpy.log).toHaveBeenCalledWith('[test] msg {"foo":"bar"}');
     });
   });
 

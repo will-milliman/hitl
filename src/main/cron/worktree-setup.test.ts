@@ -83,7 +83,7 @@ describe('setupTaskWorktrees', () => {
 
     await setupTaskWorktrees();
 
-    expect(createWorktree).toHaveBeenCalledWith('C:/repos/test-repo', 'task', 1001, 'main');
+    expect(createWorktree).toHaveBeenCalledWith('C:/repos/test-repo', 'task', 1001, 'main', undefined, 'Test task');
     expect(mockDb.task.update).toHaveBeenCalledWith({
       where: { id: 1001 },
       data: { worktreePath: 'C:/repos/test-repo-worktrees/test-repo-1' },
@@ -203,6 +203,7 @@ describe('setupTaskWorktrees', () => {
       'task',
       1001,
       'main',
+      'Test task',
     );
     expect(createWorktree).not.toHaveBeenCalled();
     expect(mockDb.task.update).toHaveBeenCalledWith({
@@ -234,7 +235,7 @@ describe('setupTaskWorktrees', () => {
 
     // repurpose failed — should NOT have saved that path
     // createWorktree fallback should have been called
-    expect(createWorktree).toHaveBeenCalledWith('C:/repos/test-repo', 'task', 1001, 'main');
+    expect(createWorktree).toHaveBeenCalledWith('C:/repos/test-repo', 'task', 1001, 'main', undefined, 'Test task');
     expect(mockDb.task.update).toHaveBeenCalledWith({
       where: { id: 1001 },
       data: { worktreePath: 'C:/repos/test-repo-worktrees/test-repo-2' },

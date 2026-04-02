@@ -11,6 +11,7 @@ import { ErrorBoundary, Spinner } from './components/common';
 import { AbandonedGrid } from './grids/AbandonedGrid';
 import { BlockedGrid } from './grids/BlockedGrid';
 import { CompletedGrid } from './grids/CompletedGrid';
+import { NonHitlGrid } from './grids/NonHitlGrid';
 import { ProfileAssignmentGrid } from './grids/ProfileAssignmentGrid';
 import { ReviewGrid } from './grids/ReviewGrid';
 import { TaskExecutionGrid } from './grids/TaskExecutionGrid';
@@ -81,6 +82,12 @@ function AppContent() {
     },
   });
 
+  const markNonHitlMutation = trpc.markNonHitl.useMutation({
+    onSuccess: () => {
+      utils.tasks.invalidate();
+    },
+  });
+
   const tasks = useMemo(() => tasksQuery.data ?? [], [tasksQuery.data]);
   const profiles = useMemo(() => profilesQuery.data ?? ({} as ProfileMap), [profilesQuery.data]);
   const profileKeys = useMemo(() => Object.keys(profiles), [profiles]);
@@ -93,6 +100,7 @@ function AppContent() {
       [GridState.COMPLETED]: [],
       [GridState.BLOCKED]: [],
       [GridState.ABANDONED]: [],
+      [GridState.NON_HITL]: [],
     };
     for (const task of tasks) {
       if (grouped[task.state]) {
@@ -106,6 +114,10 @@ function AppContent() {
     assignTaskProfileMutation.mutate({ taskId, profileKey, skipCopilot, model });
   };
 
+  const handleMarkNonHitl = (taskId: number) => {
+    markNonHitlMutation.mutate({ taskId });
+  };
+
   // Show loading spinner on initial load (after all hooks)
   if (tasksQuery.isLoading) {
     return <Spinner label="Loading work items..." />;
@@ -117,12 +129,14 @@ function AppContent() {
         tasks={tasksByState[GridState.PROFILE_ASSIGNMENT]}
         profiles={profileKeys}
         onAssignProfile={handleAssignProfile}
+        onMarkNonHitl={handleMarkNonHitl}
       />
       <TaskExecutionGrid tasks={tasksByState[GridState.TASK_EXECUTION]} profiles={profiles} />
       <ReviewGrid tasks={tasksByState[GridState.PR_REVIEW]} profiles={profiles} />
       <CompletedGrid tasks={tasksByState[GridState.COMPLETED]} />
       <BlockedGrid tasks={tasksByState[GridState.BLOCKED]} />
       <AbandonedGrid tasks={tasksByState[GridState.ABANDONED]} />
+      <NonHitlGrid tasks={tasksByState[GridState.NON_HITL]} />
     </>
   );
 }

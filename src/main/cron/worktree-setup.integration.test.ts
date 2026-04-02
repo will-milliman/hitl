@@ -88,7 +88,7 @@ describe('setupTaskWorktrees (integration)', () => {
     await setupTaskWorktrees();
 
     // Verify worktree was created with correct args
-    expect(createWorktree).toHaveBeenCalledWith('C:/repos/test-repo', 'task', 7001, 'main');
+    expect(createWorktree).toHaveBeenCalledWith('C:/repos/test-repo', 'task', 7001, 'main', undefined, 'Eligible task');
 
     // Verify DB was updated with worktree path
     const task = await db.task.findUnique({ where: { id: 7001 } });
@@ -297,6 +297,7 @@ describe('setupTaskWorktrees (integration)', () => {
       'task',
       7030,
       'main',
+      'Needs worktree',
     );
     expect(createWorktree).not.toHaveBeenCalled();
 
@@ -330,7 +331,7 @@ describe('setupTaskWorktrees (integration)', () => {
     await setupTaskWorktrees();
 
     // Should have fallen back to createWorktree
-    expect(createWorktree).toHaveBeenCalledWith('C:/repos/test-repo', 'task', 7031, 'main');
+    expect(createWorktree).toHaveBeenCalledWith('C:/repos/test-repo', 'task', 7031, 'main', undefined, 'Repurpose will fail');
 
     const task = await db.task.findUnique({ where: { id: 7031 } });
     expect(task!.worktreePath).toBe('C:/repos/test-repo-worktrees/test-repo-2');

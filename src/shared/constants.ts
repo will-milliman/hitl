@@ -6,6 +6,7 @@ export enum GridState {
   COMPLETED = 'COMPLETED',
   BLOCKED = 'BLOCKED',
   ABANDONED = 'ABANDONED',
+  NON_HITL = 'NON_HITL',
 }
 
 export const GRID_LABELS: Record<GridState, string> = {
@@ -15,6 +16,7 @@ export const GRID_LABELS: Record<GridState, string> = {
   [GridState.COMPLETED]: 'Completed',
   [GridState.BLOCKED]: 'Blocked',
   [GridState.ABANDONED]: 'Abandoned',
+  [GridState.NON_HITL]: 'Non-HITL Tasks',
 };
 
 export const IDLE_THRESHOLD_SECONDS = 900; // 15 minutes

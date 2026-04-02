@@ -16,6 +16,7 @@ import { notifyTaskCompleted } from '../notifications';
 
 import { resetTestDb, setupTestDb, teardownTestDb } from '../test-utils/db';
 import { makePullRequest } from '../test-utils/factories';
+import { getCurrentBranch } from '../worktree';
 
 // ─── Imports (after mocks) ─────────────────────────────────
 
@@ -37,10 +38,12 @@ vi.mock('../github', () => ({
   createPullRequest: vi.fn(),
   findPullRequest: vi.fn().mockResolvedValue(null),
   getPullRequestByUrl: vi.fn(),
+  isPrReadyToMerge: vi.fn().mockReturnValue(false),
 }));
 
 vi.mock('../worktree', () => ({
   getBranchName: vi.fn((type: string, workItemId: number) => `${type}/${workItemId}`),
+  getCurrentBranch: vi.fn().mockResolvedValue('task/1001'),
 }));
 
 vi.mock('../settings', () => ({
@@ -135,6 +138,7 @@ describe('runPrCheckStep (integration)', () => {
         },
       });
 
+      vi.mocked(getCurrentBranch).mockResolvedValueOnce('task/9010');
       vi.mocked(createPullRequest).mockResolvedValueOnce(
         makePullRequest({ url: 'https://github.com/org/repo/pull/301', isDraft: true }),
       );
@@ -163,6 +167,7 @@ describe('runPrCheckStep (integration)', () => {
         },
       });
 
+      vi.mocked(getCurrentBranch).mockResolvedValueOnce('task/9011');
       vi.mocked(findPullRequest).mockResolvedValueOnce(makePullRequest({ url: 'https://github.com/org/repo/pull/existing' }));
 
       await runPrCheckStep();
@@ -437,6 +442,9 @@ describe('runPrCheckStep (integration)', () => {
           disabled: false,
         },
       });
+
+      // Mock getCurrentBranch for task 9040
+      vi.mocked(getCurrentBranch).mockResolvedValueOnce('task/9040');
 
       // Mock PR creation for task 9040
       vi.mocked(createPullRequest).mockResolvedValueOnce(

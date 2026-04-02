@@ -44,10 +44,12 @@ vi.mock('../github', () => ({
   createPullRequest: vi.fn(),
   findPullRequest: vi.fn().mockResolvedValue(null),
   getPullRequestByUrl: vi.fn(),
+  isPrReadyToMerge: vi.fn().mockReturnValue(false),
 }));
 
 vi.mock('../worktree', () => ({
   getBranchName: vi.fn((type: string, workItemId: number) => `${type}/${workItemId}`),
+  getCurrentBranch: vi.fn().mockResolvedValue('task/1001'),
 }));
 
 vi.mock('../settings', () => ({
@@ -128,6 +130,7 @@ describe('runPrCheckStep', () => {
       mockDb.task.findMany
         .mockResolvedValueOnce([task]) // createDraftPRs
         .mockResolvedValueOnce([]) // checkDraftToReady
+        .mockResolvedValueOnce([]) // updatePrReadiness
         .mockResolvedValueOnce([]); // checkTaskPRMerges
 
       vi.mocked(findPullRequest).mockResolvedValueOnce(null); // no existing PR
@@ -166,7 +169,11 @@ describe('runPrCheckStep', () => {
         story: null,
       };
 
-      mockDb.task.findMany.mockResolvedValueOnce([task]).mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+      mockDb.task.findMany
+        .mockResolvedValueOnce([task])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]);
 
       vi.mocked(findPullRequest).mockResolvedValueOnce(makePullRequest({ url: 'https://github.com/org/repo/pull/99' }));
 
@@ -202,6 +209,7 @@ describe('runPrCheckStep', () => {
       mockDb.task.findMany
         .mockResolvedValueOnce([]) // createDraftPRs
         .mockResolvedValueOnce([task]) // checkDraftToReady
+        .mockResolvedValueOnce([]) // updatePrReadiness
         .mockResolvedValueOnce([]); // checkTaskPRMerges
 
       vi.mocked(getPullRequestByUrl).mockResolvedValueOnce(makePullRequest({ isDraft: false }));
@@ -222,7 +230,11 @@ describe('runPrCheckStep', () => {
         worktreePath: 'C:/repos/test-wt',
       });
 
-      mockDb.task.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([task]).mockResolvedValueOnce([]);
+      mockDb.task.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([task])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]);
 
       vi.mocked(getPullRequestByUrl).mockResolvedValueOnce(makePullRequest({ isDraft: true }));
 
@@ -239,7 +251,11 @@ describe('runPrCheckStep', () => {
         worktreePath: 'C:/repos/test-wt',
       });
 
-      mockDb.task.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([task]).mockResolvedValueOnce([]);
+      mockDb.task.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([task])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]);
 
       vi.mocked(getPullRequestByUrl).mockRejectedValueOnce(new Error('gh CLI timeout'));
 
@@ -261,6 +277,7 @@ describe('runPrCheckStep', () => {
       mockDb.task.findMany
         .mockResolvedValueOnce([]) // createDraftPRs
         .mockResolvedValueOnce([]) // checkDraftToReady
+        .mockResolvedValueOnce([]) // updatePrReadiness
         .mockResolvedValueOnce([task]); // checkTaskPRMerges
 
       vi.mocked(getPullRequestByUrl).mockResolvedValueOnce(makePullRequest({ state: 'MERGED' }));
@@ -306,7 +323,11 @@ describe('runPrCheckStep', () => {
         worktreePath: 'C:/repos/test-wt',
       });
 
-      mockDb.task.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce([task]);
+      mockDb.task.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([task]);
 
       vi.mocked(getPullRequestByUrl).mockResolvedValueOnce(makePullRequest({ state: 'OPEN' }));
 
@@ -370,7 +391,11 @@ describe('runPrCheckStep', () => {
         worktreePath: 'C:/repos/test-wt',
       });
 
-      mockDb.task.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce([task]);
+      mockDb.task.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([task]);
 
       vi.mocked(getPullRequestByUrl).mockRejectedValueOnce(new Error('gh CLI timeout'));
 
@@ -387,7 +412,11 @@ describe('runPrCheckStep', () => {
         worktreePath: 'C:/repos/test-wt',
       });
 
-      mockDb.task.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce([task]);
+      mockDb.task.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([task]);
 
       vi.mocked(getPullRequestByUrl).mockResolvedValueOnce(makePullRequest({ state: 'MERGED' }));
 

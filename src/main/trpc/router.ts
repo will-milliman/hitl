@@ -105,6 +105,15 @@ export const appRouter = t.router({
       });
     }),
 
+  /** Mark a task as Non-HITL (doesn't need a PR or task execution) */
+  markNonHitl: t.procedure.input(z.object({ taskId: z.number() })).mutation(async ({ input }) => {
+    const db = getDb();
+    return db.task.update({
+      where: { id: input.taskId },
+      data: { state: 'NON_HITL' },
+    });
+  }),
+
   /** Update a task's state and optional fields */
   updateTaskState: t.procedure
     .input(
