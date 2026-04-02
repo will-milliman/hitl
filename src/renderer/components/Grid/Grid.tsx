@@ -126,7 +126,8 @@ const SortIndicator = styled.span`
 interface GridProps<T> {
   title: string;
   data: T[];
-  columns: ColumnDef<T, unknown>[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  columns: ColumnDef<T, any>[];
   defaultExpanded?: boolean;
   grouping?: string[];
   getRowDisabled?: (row: T) => boolean;
