@@ -15,6 +15,7 @@ import { clearConfigCache } from './cron/config'
 import { unwatchAll, ensureGlobalHooks } from './copilot'
 import { initLogger, createLogger } from './logger'
 import { initAutoUpdater } from './updater'
+import { getWindowStateOptions, wasMaximized, trackWindowState } from './window-state'
 
 const logger = createLogger('app')
 
@@ -28,9 +29,10 @@ async function createWindow(): Promise<void> {
   // Initialize database before creating the window
   await initDatabase()
 
+  const savedState = getWindowStateOptions()
+
   mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
+    ...savedState,
     minWidth: 1000,
     minHeight: 600,
     title: 'HITL',
@@ -42,6 +44,14 @@ async function createWindow(): Promise<void> {
       nodeIntegration: false,
     },
   })
+
+  // Restore maximized state after window is created
+  if (wasMaximized()) {
+    mainWindow.maximize()
+  }
+
+  // Track window position/size changes for next launch
+  trackWindowState(mainWindow)
 
   // Hide the application menu (File, Edit, etc.)
   Menu.setApplicationMenu(null)

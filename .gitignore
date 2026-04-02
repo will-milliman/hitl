@@ -31,5 +31,8 @@ Thumbs.db
 *.log
 npm-debug.log*
 
+# User preferences
+window-state.json
+
 # Other
 TODO.md
