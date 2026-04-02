@@ -143,6 +143,24 @@ export function ProfileSelect({
   );
 }
 
+interface ModelSelectProps {
+  models: readonly string[];
+  value: string;
+  onChange: (value: string) => void;
+}
+
+export function ModelSelect({ models, value, onChange }: ModelSelectProps) {
+  return (
+    <StyledSelect value={value} onChange={(e) => onChange(e.target.value)}>
+      {models.map((m) => (
+        <option key={m} value={m}>
+          {m}
+        </option>
+      ))}
+    </StyledSelect>
+  );
+}
+
 interface CheckboxCellProps {
   checked: boolean;
   disabled?: boolean;

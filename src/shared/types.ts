@@ -14,6 +14,7 @@ export interface Task {
   profileKey: string | null
   worktreePath: string | null
   sessionId: string | null
+  model: string | null
   prUrl: string | null
   prMerged: boolean
   azureUrl: string

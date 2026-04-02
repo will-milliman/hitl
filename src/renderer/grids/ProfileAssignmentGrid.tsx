@@ -4,11 +4,13 @@ import { createColumnHelper } from "@tanstack/react-table";
 import { Grid } from "../components/Grid";
 import {
   ExternalLink,
+  ModelSelect,
   ProfileSelect,
   StatusIndicator,
   StyledCheckbox,
 } from "../components/common";
 import type { Task } from "../../shared/types";
+import { COPILOT_MODELS, DEFAULT_COPILOT_MODEL } from "../../shared/constants";
 import { theme } from "../styles/theme";
 
 const columnHelper = createColumnHelper<Task>();
@@ -43,6 +45,7 @@ interface ProfileAssignmentGridProps {
     taskId: number,
     profileKey: string,
     skipCopilot: boolean,
+    model: string,
   ) => void;
 }
 
@@ -57,6 +60,11 @@ export function ProfileAssignmentGrid({
 
   // Local state for selected profiles (not yet executed)
   const [selectedProfileMap, setSelectedProfileMap] = React.useState<
+    Record<number, string>
+  >({});
+
+  // Local state for selected models (not yet executed)
+  const [selectedModelMap, setSelectedModelMap] = React.useState<
     Record<number, string>
   >({});
 
@@ -110,7 +118,7 @@ export function ProfileAssignmentGrid({
       columnHelper.display({
         id: "profile",
         header: "Profile",
-        meta: { fixedWidth: 167 },
+        meta: { fixedWidth: 176 },
         cell: (info) => {
           const taskId = info.row.original.id;
           const selected =
@@ -130,6 +138,28 @@ export function ProfileAssignmentGrid({
         },
       }),
       columnHelper.display({
+        id: "model",
+        header: "Model",
+        meta: { fixedWidth: 190 },
+        cell: (info) => {
+          const taskId = info.row.original.id;
+          const selected =
+            selectedModelMap[taskId] ?? info.row.original.model ?? DEFAULT_COPILOT_MODEL;
+          return (
+            <ModelSelect
+              models={COPILOT_MODELS}
+              value={selected}
+              onChange={(value) => {
+                setSelectedModelMap((prev) => ({
+                  ...prev,
+                  [taskId]: value,
+                }));
+              }}
+            />
+          );
+        },
+      }),
+      columnHelper.display({
         id: "execute",
         meta: { fixedWidth: 96 },
         cell: (info) => {
@@ -137,6 +167,8 @@ export function ProfileAssignmentGrid({
           const profileKey =
             selectedProfileMap[taskId] ?? info.row.original.profileKey ?? "";
           const hasProfile = profileKey !== "";
+          const model =
+            selectedModelMap[taskId] ?? info.row.original.model ?? DEFAULT_COPILOT_MODEL;
           return (
             <ExecuteButton
               disabled={!hasProfile}
@@ -146,6 +178,7 @@ export function ProfileAssignmentGrid({
                     taskId,
                     profileKey,
                     skipCopilotMap[taskId] ?? false,
+                    model,
                   );
                 }
               }}
@@ -161,7 +194,7 @@ export function ProfileAssignmentGrid({
         },
       }),
     ],
-    [profiles, onAssignProfile, skipCopilotMap, selectedProfileMap],
+    [profiles, onAssignProfile, skipCopilotMap, selectedProfileMap, selectedModelMap],
   );
 
   return (

@@ -189,10 +189,11 @@ export async function runTaskExecutionStep(): Promise<void> {
       ensureGlobalHooks()
 
       // Spawn a copilot session
-      logger.info(`Spawning execution session for task #${task.id}`)
+      logger.info(`Spawning execution session for task #${task.id} (model: ${task.model ?? 'default'})`)
       const { sessionId } = await spawnSession({
         cwd: worktreePath,
         prompt: buildTaskPrompt(task.id, task.title, task.story?.title),
+        model: task.model ?? undefined,
       })
 
       // Save session ID to database

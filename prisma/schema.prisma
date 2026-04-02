@@ -25,6 +25,7 @@ model Task {
   profileKey   String?                          // Key from profile.json
   worktreePath String?                          // Absolute path to git worktree
   sessionId    String?                          // Copilot CLI session ID
+  model        String?                          // Copilot model ID (e.g. 'claude-opus-4.6')
   prUrl        String?                          // GitHub pull request URL
   prMerged     Boolean   @default(false)        // Whether the task PR has been merged
   azureUrl     String                           // Azure DevOps work item URL

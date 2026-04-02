@@ -1,9 +1,15 @@
 {
-  "integrate": {
+  "integrate-front-end": {
     "repoPath": "C:/Projects/rainier",
     "defaultBranch": "main",
     "description": "Integrate App",
-    "workspace": "/monorepo/desktop/ui/.vscode/integrate.code-workspace"
+    "workspace": "/monorepo/desktop/ui/.vscode/front-end.code-workspace"
+  },
+  "integrate-full-stack": {
+    "repoPath": "C:/Projects/rainier",
+    "defaultBranch": "main",
+    "description": "Integrate App",
+    "workspace": "/monorepo/desktop/ui/.vscode/full-stack.code-workspace"
   },
   "mock-repo": {
     "repoPath": "C:/Projects/hitl-mock-repo",

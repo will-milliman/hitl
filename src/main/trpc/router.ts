@@ -85,6 +85,7 @@ export const appRouter = t.router({
         taskId: z.number(),
         profileKey: z.string(),
         skipCopilot: z.boolean().optional(),
+        model: z.string().optional(),
       })
     )
     .mutation(async ({ input }) => {
@@ -96,6 +97,7 @@ export const appRouter = t.router({
           state: 'TASK_EXECUTION',
           disabled: input.skipCopilot ? false : true, // If skipping copilot, don't disable (user acts manually)
           skipCopilot: input.skipCopilot ?? false,
+          model: input.model ?? null,
         },
       })
     }),

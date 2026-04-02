@@ -89,8 +89,8 @@ function AppContent() {
     return grouped
   }, [tasks])
 
-  const handleAssignProfile = (taskId: number, profileKey: string, skipCopilot: boolean) => {
-    assignTaskProfileMutation.mutate({ taskId, profileKey, skipCopilot })
+  const handleAssignProfile = (taskId: number, profileKey: string, skipCopilot: boolean, model: string) => {
+    assignTaskProfileMutation.mutate({ taskId, profileKey, skipCopilot, model })
   }
 
   // Show loading spinner on initial load (after all hooks)
