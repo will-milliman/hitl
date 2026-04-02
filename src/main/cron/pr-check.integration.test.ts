@@ -61,10 +61,10 @@ vi.mock('child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('child_process')>();
   return {
     ...actual,
-    execFile: vi.fn((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
+    execFile: vi.fn((_cmd: string, _args: string[], _opts: unknown, cb: (...args: unknown[]) => void) => {
       cb(null, { stdout: '', stderr: '' });
     }),
-    exec: vi.fn((_cmd: string, _opts: unknown, cb: Function) => {
+    exec: vi.fn((_cmd: string, _opts: unknown, cb: (...args: unknown[]) => void) => {
       cb(null, { stdout: '', stderr: '' });
     }),
   };
@@ -74,7 +74,7 @@ vi.mock('util', async () => {
   const actual = await vi.importActual('util');
   return {
     ...actual,
-    promisify: vi.fn((fn: Function) => {
+    promisify: vi.fn((fn: (...args: unknown[]) => void) => {
       return (...args: unknown[]) => {
         return new Promise((resolve, reject) => {
           fn(...args, (err: Error | null, result: unknown) => {

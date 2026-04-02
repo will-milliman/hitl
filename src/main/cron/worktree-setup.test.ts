@@ -7,7 +7,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GridState } from '../../shared/constants';
-import { loadProfiles } from '../settings';
 import { makeTask } from '../test-utils/factories';
 import { createWorktree, findIdleWorktree, repurposeWorktree } from '../worktree';
 

@@ -40,7 +40,7 @@ export interface CronStatus {
   stepErrors: Record<string, string>;
 }
 
-let cronStatus: CronStatus = {
+const cronStatus: CronStatus = {
   running: false,
   idle: false,
   lastRunAt: null,

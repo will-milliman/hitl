@@ -10,7 +10,7 @@ import { existsSync } from 'fs';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { GridState } from '../../shared/constants';
-import { SIGNAL_FILES, ensureGlobalHooks, getLogDir, isWatching, readLatestSignal, spawnSession, watchSignals } from '../copilot';
+import { SIGNAL_FILES, ensureGlobalHooks, isWatching, readLatestSignal, spawnSession, watchSignals } from '../copilot';
 // ─── Real DB setup ─────────────────────────────────────────
 
 import { resetTestDb, setupTestDb, teardownTestDb } from '../test-utils/db';

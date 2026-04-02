@@ -236,14 +236,6 @@ export function StatusIndicator({ errorMessage, disabled }: StatusIndicatorProps
 
 // ─── Loading Spinner ─────────────────────────────────────
 
-const SpinnerKeyframes = styled.div`
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-`;
-
 const SpinnerWrapper = styled.div`
   display: flex;
   align-items: center;

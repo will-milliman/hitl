@@ -11,6 +11,12 @@ import {
 import React, { useEffect, useRef, useState } from 'react';
 import styled from 'styled-components';
 
+interface ColumnMeta {
+  fixedWidth?: number;
+  shrink?: boolean;
+  minWidth?: number;
+}
+
 const Section = styled.div`
   margin-bottom: ${({ theme }) => theme.spacing.md};
 `;
@@ -120,7 +126,7 @@ const SortIndicator = styled.span`
 interface GridProps<T> {
   title: string;
   data: T[];
-  columns: ColumnDef<T, any>[];
+  columns: ColumnDef<T, unknown>[];
   defaultExpanded?: boolean;
   grouping?: string[];
   getRowDisabled?: (row: T) => boolean;
@@ -156,6 +162,7 @@ export function Grid<T>({
     }
   }, [data.length]);
 
+  // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Table's API is intentionally non-memoizable
   const table = useReactTable({
     data,
     columns,
@@ -196,15 +203,15 @@ export function Grid<T>({
                       key={header.id}
                       onClick={header.column.getToggleSortingHandler()}
                       style={
-                        (header.column.columnDef.meta as any)?.fixedWidth
+                        (header.column.columnDef.meta as ColumnMeta)?.fixedWidth
                           ? {
-                              width: (header.column.columnDef.meta as any).fixedWidth,
-                              maxWidth: (header.column.columnDef.meta as any).fixedWidth,
+                              width: (header.column.columnDef.meta as ColumnMeta).fixedWidth,
+                              maxWidth: (header.column.columnDef.meta as ColumnMeta).fixedWidth,
                             }
-                          : (header.column.columnDef.meta as any)?.shrink
+                          : (header.column.columnDef.meta as ColumnMeta)?.shrink
                             ? {
                                 width: '1px',
-                                minWidth: (header.column.columnDef.meta as any).minWidth,
+                                minWidth: (header.column.columnDef.meta as ColumnMeta)?.minWidth,
                               }
                             : undefined
                       }
@@ -223,12 +230,12 @@ export function Grid<T>({
                     <Td
                       key={cell.id}
                       style={
-                        (cell.column.columnDef.meta as any)?.fixedWidth
+                        (cell.column.columnDef.meta as ColumnMeta)?.fixedWidth
                           ? {
-                              width: (cell.column.columnDef.meta as any).fixedWidth,
-                              maxWidth: (cell.column.columnDef.meta as any).fixedWidth,
+                              width: (cell.column.columnDef.meta as ColumnMeta).fixedWidth,
+                              maxWidth: (cell.column.columnDef.meta as ColumnMeta).fixedWidth,
                             }
-                          : (cell.column.columnDef.meta as any)?.shrink
+                          : (cell.column.columnDef.meta as ColumnMeta)?.shrink
                             ? { width: '1px' }
                             : undefined
                       }

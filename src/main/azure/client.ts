@@ -11,10 +11,7 @@
  * All API calls use retry logic with exponential backoff for
  * transient failures (network errors, 429/5xx responses).
  */
-import { createLogger } from '../logger';
 import { isRetryableHttpError, withRetry } from '../utils/retry';
-
-const logger = createLogger('azure');
 
 export interface AzureConfig {
   org: string;

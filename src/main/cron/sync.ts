@@ -15,15 +15,7 @@
  * 8. Remove completed/abandoned tasks that were deleted from Azure
  */
 import { GridState } from '../../shared/constants';
-import {
-  type AzureConfig,
-  type WorkItem,
-  buildSprintStoriesQuery,
-  buildSprintTasksQuery,
-  getWorkItems,
-  queryWiql,
-  workItemUrl,
-} from '../azure';
+import { type WorkItem, buildSprintTasksQuery, getWorkItems, queryWiql, workItemUrl } from '../azure';
 import { getDb } from '../db';
 import { createLogger } from '../logger';
 

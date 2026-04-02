@@ -67,8 +67,8 @@ function AppContent() {
     },
   });
 
-  const tasks = tasksQuery.data ?? [];
-  const profiles = profilesQuery.data ?? ({} as ProfileMap);
+  const tasks = useMemo(() => tasksQuery.data ?? [], [tasksQuery.data]);
+  const profiles = useMemo(() => profilesQuery.data ?? ({} as ProfileMap), [profilesQuery.data]);
   const profileKeys = useMemo(() => Object.keys(profiles), [profiles]);
 
   const tasksByState = useMemo(() => {

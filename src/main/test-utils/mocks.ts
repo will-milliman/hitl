@@ -263,7 +263,7 @@ export function mockElectronModule() {
 /** Mock for 'child_process' module. */
 export function mockChildProcessModule() {
   return {
-    execFile: vi.fn((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
+    execFile: vi.fn((_cmd: string, _args: string[], _opts: unknown, cb: (...args: unknown[]) => void) => {
       cb(null, { stdout: '', stderr: '' });
     }),
   };

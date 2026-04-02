@@ -4,9 +4,8 @@ import styled from 'styled-components';
 
 import type { Task } from '../../shared/types';
 import { Grid } from '../components/Grid';
-import { ActionLink, ExternalLink, Placeholder, StatusIndicator, formatRelativeTime } from '../components/common';
+import { ExternalLink, Placeholder, StatusIndicator, formatRelativeTime } from '../components/common';
 import { theme } from '../styles/theme';
-import { trpc } from '../trpc/client';
 
 const columnHelper = createColumnHelper<Task>();
 
@@ -32,8 +31,6 @@ interface CompletedGridProps {
 }
 
 export function CompletedGrid({ tasks }: CompletedGridProps) {
-  const openSession = trpc.openSession.useMutation();
-
   const columns = useMemo(
     () => [
       columnHelper.display({
@@ -69,7 +66,7 @@ export function CompletedGrid({ tasks }: CompletedGridProps) {
         },
       }),
     ],
-    [openSession],
+    [],
   );
 
   return (

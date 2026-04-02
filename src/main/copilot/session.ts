@@ -16,7 +16,7 @@
  * the app's temp directory under `.hitl-data/<worktree-name>/`.
  */
 import { exec, spawn } from 'child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync as unlinkFileSync, watch, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync as unlinkFileSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { basename, join } from 'path';
 import { promisify } from 'util';
@@ -275,10 +275,14 @@ if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) {
     // Clean up temp files on error
     try {
       unlinkFileSync(promptFile);
-    } catch {}
+    } catch {
+      // Best-effort cleanup — file may already be gone
+    }
     try {
       unlinkFileSync(wrapperScript);
-    } catch {}
+    } catch {
+      // Best-effort cleanup — file may already be gone
+    }
   });
 
   // Wait for the session ID to appear in the log directory
@@ -290,7 +294,9 @@ if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) {
     // The prompt file is safe to delete (already read by wrapper script)
     try {
       unlinkFileSync(promptFile);
-    } catch {}
+    } catch {
+      // Best-effort cleanup — file may already be gone
+    }
     // Don't delete the wrapper script — it may still be running
     throw err;
   }
@@ -299,7 +305,9 @@ if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) {
   // The prompt file has been read, and the wrapper script has started copilot
   try {
     unlinkFileSync(promptFile);
-  } catch {}
+  } catch {
+    // Best-effort cleanup — file may already be gone
+  }
 
   console.log(`[copilot] Session started: ${sessionId}`);
 

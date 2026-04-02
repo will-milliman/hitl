@@ -9,10 +9,9 @@ import type { PrismaClient } from '@prisma/client';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { GridState } from '../../shared/constants';
-import { loadProfiles } from '../settings';
 // ─── Real DB setup ─────────────────────────────────────────
 
-import { getTestDb, resetTestDb, setupTestDb, teardownTestDb } from '../test-utils/db';
+import { resetTestDb, setupTestDb, teardownTestDb } from '../test-utils/db';
 import { createWorktree, findIdleWorktree, repurposeWorktree } from '../worktree';
 
 // ─── Imports (after mocks) ─────────────────────────────────

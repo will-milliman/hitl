@@ -8,7 +8,7 @@ import { existsSync } from 'fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GridState } from '../../shared/constants';
-import { ensureGlobalHooks, getLogDir, isWatching, readLatestSignal, spawnSession, watchSignals } from '../copilot';
+import { ensureGlobalHooks, isWatching, readLatestSignal, spawnSession, watchSignals } from '../copilot';
 import { makeTask } from '../test-utils/factories';
 
 // ─── Imports (after mocks) ─────────────────────────────────

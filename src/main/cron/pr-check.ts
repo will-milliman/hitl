@@ -31,7 +31,7 @@ import { createPullRequest, findPullRequest, getPullRequestByUrl, isGhAuthentica
 import { createLogger } from '../logger';
 import { notifyTaskCompleted } from '../notifications';
 import { loadProfiles } from '../settings';
-import { getBranchName, getCurrentBranch, listWorktrees } from '../worktree';
+import { getCurrentBranch } from '../worktree';
 
 const logger = createLogger('pr-check');
 const execAsync = promisify(exec);

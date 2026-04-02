@@ -210,7 +210,10 @@ export function makeReviewComment(overrides: Partial<ReviewComment> = {}): Revie
  * @param tasks Array of task data (uses makeTask defaults if not provided)
  */
 export async function seedStoryWithTasks(
-  db: { story: { create: Function }; task: { create: Function } },
+  db: {
+    story: { create: (args: { data: unknown }) => Promise<unknown> };
+    task: { create: (args: { data: unknown }) => Promise<unknown> };
+  },
   story: ReturnType<typeof makeStory>,
   tasks: Partial<TaskRecord>[] = [],
 ) {
@@ -219,7 +222,7 @@ export async function seedStoryWithTasks(
   for (const taskOverrides of tasks) {
     const task = makeTask({ storyId: story.id, ...taskOverrides });
     // Only pass Prisma-compatible fields (exclude generated fields for create)
-    const { createdAt, updatedAt, ...createData } = task;
+    const { createdAt: _createdAt, updatedAt: _updatedAt, ...createData } = task;
     await db.task.create({ data: createData });
   }
 }

@@ -17,11 +17,9 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 
-import { createLogger } from '../logger';
 import { withRetry } from '../utils/retry';
 
 const execFileAsync = promisify(execFile);
-const logger = createLogger('github');
 
 /** Max buffer for gh output (5 MB) */
 const MAX_BUFFER = 5 * 1024 * 1024;

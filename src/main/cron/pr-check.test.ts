@@ -66,10 +66,10 @@ vi.mock('../notifications', () => ({
 
 // Mock child_process for pushBranch (execFile) and closeVirtualDesktop (exec)
 vi.mock('child_process', () => ({
-  execFile: vi.fn((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
+  execFile: vi.fn((_cmd: string, _args: string[], _opts: unknown, cb: (...args: unknown[]) => void) => {
     cb(null, { stdout: '', stderr: '' });
   }),
-  exec: vi.fn((_cmd: string, _opts: unknown, cb: Function) => {
+  exec: vi.fn((_cmd: string, _opts: unknown, cb: (...args: unknown[]) => void) => {
     cb(null, { stdout: '', stderr: '' });
   }),
 }));
@@ -78,7 +78,7 @@ vi.mock('util', async () => {
   const actual = await vi.importActual('util');
   return {
     ...actual,
-    promisify: vi.fn((fn: Function) => {
+    promisify: vi.fn((fn: (...args: unknown[]) => void) => {
       return (...args: unknown[]) => {
         return new Promise((resolve, reject) => {
           fn(...args, (err: Error | null, result: unknown) => {
@@ -396,7 +396,7 @@ describe('runPrCheckStep', () => {
 
       // Virtual desktop close also fails
       vi.mocked(exec).mockImplementationOnce(((_cmd: unknown, _opts: unknown, cb: unknown) => {
-        (cb as Function)(new Error('PowerShell not found'));
+        (cb as (...args: unknown[]) => void)(new Error('PowerShell not found'));
         return {} as any;
       }) as any);
 

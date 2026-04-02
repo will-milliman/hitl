@@ -12,7 +12,7 @@ import { GridState } from '../../shared/constants';
 import { getWorkItems, queryWiql } from '../azure';
 // ─── Real DB setup ─────────────────────────────────────────
 
-import { getTestDb, resetTestDb, setupTestDb, teardownTestDb } from '../test-utils/db';
+import { resetTestDb, setupTestDb, teardownTestDb } from '../test-utils/db';
 import { makeWorkItem } from '../test-utils/factories';
 
 import { getAzureConfig } from './config';
