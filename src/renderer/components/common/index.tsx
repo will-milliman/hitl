@@ -388,6 +388,23 @@ export function formatRelativeTime(date: Date | string | null | undefined): stri
   return `${days}d ago`;
 }
 
+// ─── Work Item Type Icon ─────────────────────────────────
+
+interface WorkItemTypeIconProps {
+  type: string;
+}
+
+/**
+ * Emoji indicator for the Azure DevOps work item type.
+ *
+ * - Bug: 🪲
+ * - Task: 📋
+ */
+export function WorkItemTypeIcon({ type }: WorkItemTypeIconProps) {
+  const emoji = type === 'Bug' ? '🪲' : '📋';
+  return <span title={type}>{emoji}</span>;
+}
+
 // ─── Activity Indicator (bouncing squares) ───────────────
 
 const SQUARE_COUNT = 8;

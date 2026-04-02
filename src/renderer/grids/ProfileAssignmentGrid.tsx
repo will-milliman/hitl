@@ -5,7 +5,14 @@ import styled from 'styled-components';
 import { COPILOT_MODELS, DEFAULT_COPILOT_MODEL } from '../../shared/constants';
 import type { Task } from '../../shared/types';
 import { Grid } from '../components/Grid';
-import { ExternalLink, ModelSelect, ProfileSelect, StatusIndicator, StyledCheckbox } from '../components/common';
+import {
+  ExternalLink,
+  ModelSelect,
+  ProfileSelect,
+  StatusIndicator,
+  StyledCheckbox,
+  WorkItemTypeIcon,
+} from '../components/common';
 import { theme } from '../styles/theme';
 
 const columnHelper = createColumnHelper<Task>();
@@ -65,8 +72,13 @@ export function ProfileAssignmentGrid({ tasks, profiles, onAssignProfile, onMark
       }),
       columnHelper.accessor('id', {
         header: 'Task Id',
-        meta: { fixedWidth: 70 },
-        cell: (info) => <ExternalLink href={info.row.original.azureUrl}>{info.getValue()}</ExternalLink>,
+        meta: { fixedWidth: 90 },
+        cell: (info) => (
+          <>
+            <WorkItemTypeIcon type={info.row.original.workItemType} />{' '}
+            <ExternalLink href={info.row.original.azureUrl}>{info.getValue()}</ExternalLink>
+          </>
+        ),
       }),
       columnHelper.accessor('title', {
         header: 'Task Title',

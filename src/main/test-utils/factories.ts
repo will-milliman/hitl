@@ -31,6 +31,7 @@ export function makeStory(overrides: Partial<typeof STORY_DEFAULTS> = {}) {
 export interface TaskRecord {
   id: number;
   title: string;
+  workItemType: string;
   storyId: number | null;
   state: string;
   profileKey: string | null;
@@ -52,6 +53,7 @@ export interface TaskRecord {
 const TASK_DEFAULTS: TaskRecord = {
   id: 91001,
   title: 'Test task',
+  workItemType: 'Task',
   storyId: null,
   state: GridState.PROFILE_ASSIGNMENT,
   profileKey: null,

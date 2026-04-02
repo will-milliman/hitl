@@ -3,7 +3,14 @@ import React, { useMemo } from 'react';
 
 import type { ProfileMap, Task } from '../../shared/types';
 import { Grid } from '../components/Grid';
-import { ActionLink, ActivityIndicator, ExternalLink, Placeholder, StatusIndicator } from '../components/common';
+import {
+  ActionLink,
+  ActivityIndicator,
+  ExternalLink,
+  Placeholder,
+  StatusIndicator,
+  WorkItemTypeIcon,
+} from '../components/common';
 import { theme } from '../styles/theme';
 import { trpc } from '../trpc/client';
 
@@ -36,8 +43,13 @@ export function TaskExecutionGrid({ tasks, profiles }: TaskExecutionGridProps) {
       }),
       columnHelper.accessor('id', {
         header: 'Task Id',
-        meta: { fixedWidth: 70 },
-        cell: (info) => <ExternalLink href={info.row.original.azureUrl}>{info.getValue()}</ExternalLink>,
+        meta: { fixedWidth: 90 },
+        cell: (info) => (
+          <>
+            <WorkItemTypeIcon type={info.row.original.workItemType} />{' '}
+            <ExternalLink href={info.row.original.azureUrl}>{info.getValue()}</ExternalLink>
+          </>
+        ),
       }),
       columnHelper.accessor('title', {
         header: 'Task Title',

@@ -5,10 +5,11 @@ export interface Story {
   azureUrl: string;
 }
 
-/** A task work item — the primary pipeline entity */
+/** A task or bug work item — the primary pipeline entity */
 export interface Task {
   id: number;
   title: string;
+  workItemType: string; // Azure DevOps type: 'Task' or 'Bug'
   storyId: number | null;
   state: string; // GridState enum value
   profileKey: string | null;

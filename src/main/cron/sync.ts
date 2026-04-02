@@ -1,11 +1,11 @@
 /**
  * Azure DevOps work item sync.
  *
- * Queries Azure DevOps for tasks in the current sprint assigned to the
- * current user, then upserts them into the local database.
+ * Queries Azure DevOps for tasks and bugs in the current sprint assigned to
+ * the current user, then upserts them into the local database.
  *
  * Strategy:
- * 1. Query for all tasks in the current sprint (state: New or Active) assigned to @Me
+ * 1. Query for all tasks/bugs in the current sprint (state: New or Active) assigned to @Me
  * 2. Fetch full work item details
  * 3. Fetch parent story info for context (lightweight)
  * 4. Upsert stories as lightweight parent references
@@ -41,12 +41,12 @@ export async function syncWorkItems(): Promise<void> {
 
   const db = getDb();
 
-  // 1. Query for tasks in current sprint
+  // 1. Query for tasks/bugs in current sprint
   const taskQuery = buildSprintTasksQuery();
   const taskWiqlResult = await queryWiql(config, taskQuery);
   const taskIds = taskWiqlResult.workItems.map((wi) => wi.id);
 
-  logger.info(`Found ${taskIds.length} tasks in current sprint`);
+  logger.info(`Found ${taskIds.length} tasks/bugs in current sprint`);
 
   // Build a set of Azure task IDs for deletion detection
   const azureTaskIdSet = new Set(taskIds);
@@ -90,6 +90,7 @@ export async function syncWorkItems(): Promise<void> {
   for (const task of tasks) {
     const id = task.fields['System.Id'];
     const title = task.fields['System.Title'];
+    const workItemType = task.fields['System.WorkItemType'];
     const parentId = task.fields['System.Parent'];
     const azureState = task.fields['System.State'];
     const azureUrl = workItemUrl(config.org, config.project, id);
@@ -104,6 +105,7 @@ export async function syncWorkItems(): Promise<void> {
           where: { id },
           data: {
             title,
+            workItemType,
             azureUrl,
             storyId: typeof parentId === 'number' ? parentId : existing.storyId,
             state: GridState.BLOCKED,
@@ -117,6 +119,7 @@ export async function syncWorkItems(): Promise<void> {
           where: { id },
           data: {
             title,
+            workItemType,
             azureUrl,
             storyId: typeof parentId === 'number' ? parentId : existing.storyId,
             state: GridState.PROFILE_ASSIGNMENT,
@@ -125,11 +128,12 @@ export async function syncWorkItems(): Promise<void> {
         });
         logger.info(`Task #${id} unblocked, moved back to PROFILE_ASSIGNMENT`);
       } else {
-        // Only update title and azureUrl — don't overwrite grid state or profile
+        // Only update title, workItemType, and azureUrl — don't overwrite grid state or profile
         await db.task.update({
           where: { id },
           data: {
             title,
+            workItemType,
             azureUrl,
             storyId: typeof parentId === 'number' ? parentId : existing.storyId,
           },
@@ -142,6 +146,7 @@ export async function syncWorkItems(): Promise<void> {
         data: {
           id,
           title,
+          workItemType,
           azureUrl,
           storyId: typeof parentId === 'number' ? parentId : null,
           state: initialState,
@@ -208,5 +213,5 @@ export async function syncWorkItems(): Promise<void> {
     }
   }
 
-  logger.info(`Synced ${parentStories.length} stories, ${tasks.length} tasks`);
+  logger.info(`Synced ${parentStories.length} stories, ${tasks.length} tasks/bugs`);
 }

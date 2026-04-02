@@ -16,10 +16,11 @@ model Story {
   tasks Task[]
 }
 
-/// A task work item — the primary pipeline entity
+/// A task or bug work item — the primary pipeline entity
 model Task {
   id           Int       @id                    // Azure DevOps work item ID
   title        String
+  workItemType String    @default("Task")       // Azure DevOps type: 'Task' or 'Bug'
   storyId      Int?                             // Parent story work item ID (optional)
   state        String    @default("PROFILE_ASSIGNMENT") // GridState enum value
   profileKey   String?                          // Key from profile.json

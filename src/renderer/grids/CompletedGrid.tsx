@@ -4,7 +4,7 @@ import styled from 'styled-components';
 
 import type { Task } from '../../shared/types';
 import { Grid } from '../components/Grid';
-import { ExternalLink, Placeholder, StatusIndicator, formatRelativeTime } from '../components/common';
+import { ExternalLink, Placeholder, StatusIndicator, WorkItemTypeIcon, formatRelativeTime } from '../components/common';
 import { theme } from '../styles/theme';
 
 const columnHelper = createColumnHelper<Task>();
@@ -41,8 +41,13 @@ export function CompletedGrid({ tasks }: CompletedGridProps) {
       }),
       columnHelper.accessor('id', {
         header: 'Task Id',
-        meta: { fixedWidth: 70 },
-        cell: (info) => <ExternalLink href={info.row.original.azureUrl}>{info.getValue()}</ExternalLink>,
+        meta: { fixedWidth: 90 },
+        cell: (info) => (
+          <>
+            <WorkItemTypeIcon type={info.row.original.workItemType} />{' '}
+            <ExternalLink href={info.row.original.azureUrl}>{info.getValue()}</ExternalLink>
+          </>
+        ),
       }),
       columnHelper.accessor('title', {
         header: 'Task Title',

@@ -26,6 +26,7 @@ export const mockTasks: Task[] = [
   {
     id: 12351,
     title: 'Create login page component',
+    workItemType: 'Task',
     storyId: 12345,
     state: GridState.PROFILE_ASSIGNMENT,
     profileKey: null,
@@ -48,6 +49,7 @@ export const mockTasks: Task[] = [
   {
     id: 12352,
     title: 'Build analytics chart component',
+    workItemType: 'Bug',
     storyId: 12346,
     state: GridState.TASK_EXECUTION,
     profileKey: 'web-app',
@@ -70,6 +72,7 @@ export const mockTasks: Task[] = [
   {
     id: 12331,
     title: 'Create migration script for users table',
+    workItemType: 'Task',
     storyId: 12330,
     state: GridState.PR_REVIEW,
     profileKey: 'backend-svc',
@@ -92,6 +95,7 @@ export const mockTasks: Task[] = [
   {
     id: 12332,
     title: 'Create migration script for orders table',
+    workItemType: 'Task',
     storyId: 12330,
     state: GridState.COMPLETED,
     profileKey: 'backend-svc',
@@ -114,6 +118,7 @@ export const mockTasks: Task[] = [
   {
     id: 12333,
     title: 'Update ORM models for new schema',
+    workItemType: 'Bug',
     storyId: 12330,
     state: GridState.BLOCKED,
     profileKey: null,

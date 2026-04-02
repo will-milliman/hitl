@@ -166,18 +166,18 @@ export function workItemUrl(org: string, project: string, id: number): string {
 }
 
 /**
- * WIQL query to find stories in the current sprint assigned to the current user
- * that have active or new tasks, even if the story itself is closed.
+ * WIQL query to find tasks and bugs in the current sprint assigned to the
+ * current user that are new or active.
  *
- * This uses a flat query that finds tasks first (since tasks have the state filter),
- * then we look up their parent stories.
+ * This uses a flat query that finds work items first (since they have the
+ * state filter), then we look up their parent stories.
  */
 export function buildSprintTasksQuery(): string {
   return `
     SELECT [System.Id]
     FROM WorkItems
     WHERE
-      [System.WorkItemType] = 'Task'
+      [System.WorkItemType] IN ('Task', 'Bug')
       AND [System.IterationPath] = @CurrentIteration
       AND [System.State] IN ('New', 'Active')
       AND [System.AssignedTo] = @Me
