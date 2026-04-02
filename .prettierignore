@@ -1,0 +1,8 @@
+node_modules/
+out/
+dist/
+.electron-vite/
+*.db
+*.db-journal
+prisma/migrations/
+package-lock.json

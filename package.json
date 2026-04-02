@@ -21,7 +21,13 @@
     "dist": "electron-builder",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx,json,css,md,html}": "prettier --write"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -46,6 +52,7 @@
   "devDependencies": {
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "16.3.2",
+    "@trivago/prettier-plugin-sort-imports": "6.0.2",
     "@types/better-sqlite3": "7.6.13",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
@@ -54,7 +61,10 @@
     "electron": "33.4.11",
     "electron-builder": "^25.1.8",
     "electron-vite": "^5.0.0",
+    "husky": "9.1.7",
     "jsdom": "27.0.1",
+    "lint-staged": "16.4.0",
+    "prettier": "3.8.1",
     "prisma": "6.19.2",
     "tsx": "4.21.0",
     "typescript": "^5.7.2",
