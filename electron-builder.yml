@@ -36,8 +36,8 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: HITL Orchestrator
-  uninstallDisplayName: HITL Orchestrator
+  shortcutName: HITL
+  uninstallDisplayName: HITL
 
 # Auto-update via GitHub releases (electron-updater)
 publish:

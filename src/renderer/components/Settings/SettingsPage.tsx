@@ -683,7 +683,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
           {activeTab === 'about' && (
             <>
               <Section>
-                <SectionTitle>HITL Orchestrator</SectionTitle>
+                <SectionTitle>HITL</SectionTitle>
                 <FieldGroup>
                   <StatusText>Human-in-the-Loop Agentic Development Orchestrator</StatusText>
                   <StatusText>Version: 0.1.0</StatusText>
