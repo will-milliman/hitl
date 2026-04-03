@@ -266,7 +266,10 @@ type TabId = 'azure' | 'cron' | 'profiles' | 'notifications' | 'terminal' | 'abo
 interface SettingsData {
   azure: { org: string; project: string; pat: string; team: string };
   cron: { intervalSeconds: number; idleThresholdSeconds: number };
-  profiles: Record<string, { repoPath: string; defaultBranch: string; description?: string }>;
+  profiles: Record<
+    string,
+    { repoPath: string; defaultBranch: string; description?: string; setup?: { cwd: string; command: string } }
+  >;
   notifications: { enabled: boolean; prReviewNeeded: boolean; taskCompleted: boolean; cronErrors: boolean };
   terminal: { shell: 'pwsh' | 'powershell' | 'cmd' };
 }
@@ -570,6 +573,47 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                           setSaveMessage(null);
                         }}
                         placeholder="Frontend app, backend service, etc."
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Setup Command (optional)</FieldLabel>
+                      <SmallInput
+                        value={profile.setup?.command || ''}
+                        onChange={(e) => {
+                          const cmd = e.target.value;
+                          const next = {
+                            ...formData.profiles,
+                            [key]: {
+                              ...profile,
+                              setup: cmd ? { cwd: profile.setup?.cwd || '.', command: cmd } : undefined,
+                            },
+                          };
+                          setFormData({ ...formData, profiles: next });
+                          setDirty(true);
+                          setSaveMessage(null);
+                        }}
+                        placeholder="e.g. npm install"
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Setup CWD (relative to worktree root)</FieldLabel>
+                      <SmallInput
+                        value={profile.setup?.cwd || ''}
+                        onChange={(e) => {
+                          const cwd = e.target.value;
+                          const next = {
+                            ...formData.profiles,
+                            [key]: {
+                              ...profile,
+                              setup: profile.setup ? { ...profile.setup, cwd: cwd || '.' } : undefined,
+                            },
+                          };
+                          setFormData({ ...formData, profiles: next });
+                          setDirty(true);
+                          setSaveMessage(null);
+                        }}
+                        placeholder="."
+                        disabled={!profile.setup?.command}
                       />
                     </Field>
                   </FieldGroup>

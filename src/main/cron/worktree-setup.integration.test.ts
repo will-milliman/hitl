@@ -6,6 +6,8 @@
  * tasks and persists the worktreePath in the DB.
  */
 import type { PrismaClient } from '@prisma/client';
+import { spawn } from 'child_process';
+import { join } from 'path';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { GridState } from '../../shared/constants';
@@ -29,20 +31,30 @@ vi.mock('../logger', () => ({
   }),
 }));
 
+vi.mock('child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('child_process')>();
+  return {
+    ...actual,
+    spawn: vi.fn().mockReturnValue({ unref: vi.fn() }),
+  };
+});
+
 vi.mock('../worktree', () => ({
   createWorktree: vi.fn().mockResolvedValue('C:/repos/test-repo-worktrees/test-repo-1'),
   findIdleWorktree: vi.fn().mockResolvedValue(null),
   repurposeWorktree: vi.fn().mockResolvedValue('C:/repos/test-repo-worktrees/test-repo-1'),
 }));
 
+const mockLoadProfiles = vi.fn().mockReturnValue({
+  integrate: {
+    repoPath: 'C:/repos/test-repo',
+    defaultBranch: 'main',
+    description: 'Test profile',
+  },
+});
+
 vi.mock('../settings', () => ({
-  loadProfiles: vi.fn().mockReturnValue({
-    integrate: {
-      repoPath: 'C:/repos/test-repo',
-      defaultBranch: 'main',
-      description: 'Test profile',
-    },
-  }),
+  loadProfiles: (...args: unknown[]) => mockLoadProfiles(...args),
 }));
 
 let db: PrismaClient;
@@ -335,5 +347,67 @@ describe('setupTaskWorktrees (integration)', () => {
 
     const task = await db.task.findUnique({ where: { id: 7031 } });
     expect(task!.worktreePath).toBe('C:/repos/test-repo-worktrees/test-repo-2');
+  });
+
+  it('spawns setup command after worktree is created when profile has setup config', async () => {
+    mockLoadProfiles.mockReturnValueOnce({
+      integrate: {
+        repoPath: 'C:/repos/test-repo',
+        defaultBranch: 'main',
+        description: 'Test profile',
+        setup: { cwd: 'src', command: 'npm install' },
+      },
+    });
+
+    await db.task.create({
+      data: {
+        id: 7040,
+        title: 'Task with setup',
+        azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/7040',
+        state: GridState.TASK_EXECUTION,
+        profileKey: 'integrate',
+        worktreePath: null,
+        disabled: true,
+      },
+    });
+
+    vi.mocked(createWorktree).mockResolvedValueOnce('C:/repos/test-repo-worktrees/task-7040');
+
+    await setupTaskWorktrees();
+
+    // Verify worktree was created and DB updated
+    const task = await db.task.findUnique({ where: { id: 7040 } });
+    expect(task!.worktreePath).toBe('C:/repos/test-repo-worktrees/task-7040');
+
+    // Verify setup command was spawned
+    expect(spawn).toHaveBeenCalledWith('npm install', [], {
+      cwd: join('C:/repos/test-repo-worktrees/task-7040', 'src'),
+      shell: true,
+      detached: true,
+      stdio: 'ignore',
+    });
+  });
+
+  it('does not spawn setup command when profile has no setup config', async () => {
+    await db.task.create({
+      data: {
+        id: 7041,
+        title: 'Task without setup',
+        azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/7041',
+        state: GridState.TASK_EXECUTION,
+        profileKey: 'integrate',
+        worktreePath: null,
+        disabled: true,
+      },
+    });
+
+    vi.mocked(createWorktree).mockResolvedValueOnce('C:/repos/test-repo-worktrees/task-7041');
+
+    await setupTaskWorktrees();
+
+    const task = await db.task.findUnique({ where: { id: 7041 } });
+    expect(task!.worktreePath).toBe('C:/repos/test-repo-worktrees/task-7041');
+
+    expect(spawn).not.toHaveBeenCalled();
   });
 });

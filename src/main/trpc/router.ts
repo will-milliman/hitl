@@ -671,6 +671,12 @@ After making your fixes:
                   skillPath: z.string(),
                 })
                 .optional(),
+              setup: z
+                .object({
+                  cwd: z.string(),
+                  command: z.string(),
+                })
+                .optional(),
             }),
           )
           .optional(),

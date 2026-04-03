@@ -43,6 +43,13 @@ export interface Profile {
     /** Path to the Copilot skill file in the repo (e.g. ".github/copilot/skills/validate-fe.md") */
     skillPath: string;
   };
+  /** Setup command to run in the background after a worktree is created/reused */
+  setup?: {
+    /** Working directory for the command (relative to worktree root) */
+    cwd: string;
+    /** Shell command to execute */
+    command: string;
+  };
 }
 
 /** Profile map keyed by profile name */

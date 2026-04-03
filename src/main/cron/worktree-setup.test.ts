@@ -4,6 +4,8 @@
  * Tests the setupTaskWorktrees() orchestration logic with mocked DB,
  * worktree, and settings modules.
  */
+import { spawn } from 'child_process';
+import { join } from 'path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GridState } from '../../shared/constants';
@@ -25,6 +27,10 @@ vi.mock('../logger', () => ({
   }),
 }));
 
+vi.mock('child_process', () => ({
+  spawn: vi.fn().mockReturnValue({ unref: vi.fn() }),
+}));
+
 const mockDb = {
   task: {
     findMany: vi.fn().mockResolvedValue([]),
@@ -42,14 +48,16 @@ vi.mock('../worktree', () => ({
   repurposeWorktree: vi.fn().mockResolvedValue('/tmp/test-worktree'),
 }));
 
+const mockLoadProfiles = vi.fn().mockReturnValue({
+  integrate: {
+    repoPath: 'C:/repos/test-repo',
+    defaultBranch: 'main',
+    description: 'Test profile',
+  },
+});
+
 vi.mock('../settings', () => ({
-  loadProfiles: vi.fn().mockReturnValue({
-    integrate: {
-      repoPath: 'C:/repos/test-repo',
-      defaultBranch: 'main',
-      description: 'Test profile',
-    },
-  }),
+  loadProfiles: (...args: unknown[]) => mockLoadProfiles(...args),
 }));
 
 // ─── Tests ─────────────────────────────────────────────────
@@ -239,6 +247,52 @@ describe('setupTaskWorktrees', () => {
     expect(mockDb.task.update).toHaveBeenCalledWith({
       where: { id: 1001 },
       data: { worktreePath: 'C:/repos/test-repo-worktrees/test-repo-2' },
+    });
+  });
+
+  it('does not spawn setup command when profile has no setup config', async () => {
+    const task = makeTask({
+      id: 1001,
+      state: GridState.TASK_EXECUTION,
+      profileKey: 'integrate',
+      worktreePath: null,
+      disabled: true,
+    });
+    mockDb.task.findMany.mockResolvedValueOnce([task]).mockResolvedValueOnce([]);
+    vi.mocked(createWorktree).mockResolvedValueOnce('C:/repos/test-repo-worktrees/test-repo-1');
+
+    await setupTaskWorktrees();
+
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('spawns setup command in the background when profile has setup config', async () => {
+    mockLoadProfiles.mockReturnValueOnce({
+      integrate: {
+        repoPath: 'C:/repos/test-repo',
+        defaultBranch: 'main',
+        description: 'Test profile',
+        setup: { cwd: 'packages/app', command: 'npm install' },
+      },
+    });
+
+    const task = makeTask({
+      id: 1001,
+      state: GridState.TASK_EXECUTION,
+      profileKey: 'integrate',
+      worktreePath: null,
+      disabled: true,
+    });
+    mockDb.task.findMany.mockResolvedValueOnce([task]).mockResolvedValueOnce([]);
+    vi.mocked(createWorktree).mockResolvedValueOnce('C:/repos/test-repo-worktrees/test-repo-1');
+
+    await setupTaskWorktrees();
+
+    expect(spawn).toHaveBeenCalledWith('npm install', [], {
+      cwd: join('C:/repos/test-repo-worktrees/test-repo-1', 'packages/app'),
+      shell: true,
+      detached: true,
+      stdio: 'ignore',
     });
   });
 });

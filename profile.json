@@ -3,19 +3,31 @@
     "repoPath": "C:/Projects/rainier",
     "defaultBranch": "main",
     "description": "Integrate App",
-    "workspace": "/monorepo/desktop/ui/.vscode/front-end.code-workspace"
+    "workspace": "/monorepo/desktop/ui/.vscode/front-end.code-workspace",
+    "setup": {
+      "command": "pnpm i && pnpm dev:setup",
+      "cwd": "/monorepo/desktop/ui"
+    }
   },
   "integrate-full-stack": {
     "repoPath": "C:/Projects/rainier",
     "defaultBranch": "main",
     "description": "Integrate App",
-    "workspace": "/monorepo/desktop/ui/.vscode/full-stack.code-workspace"
+    "workspace": "/monorepo/desktop/ui/.vscode/full-stack.code-workspace",
+    "setup": {
+      "command": "pnpm i && pnpm dev:setup",
+      "cwd": "/monorepo/desktop/ui"
+    }
   },
   "icun": {
     "repoPath": "C:/Projects/IntegrateCoreUiNext",
     "defaultBranch": "main",
     "description": "ICUN",
-    "workspace": "/.vscode/IntegrateCoreUiNext.code-workspace"
+    "workspace": "/.vscode/IntegrateCoreUiNext.code-workspace",
+    "setup": {
+      "command": "pnpm i && pnpm build",
+      "cwd": "/"
+    }
   },
   "mock-repo": {
     "repoPath": "C:/Projects/hitl-mock-repo",

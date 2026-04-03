@@ -6,8 +6,14 @@
  * worktree (one that was parked by a completed task), and falls back
  * to creating a new worktree if none are available.
  *
+ * If the profile has a setup config, the setup command is spawned
+ * in the background (detached) after the worktree is ready.
+ *
  * Task PRs target the default branch directly (no story branch hierarchy).
  */
+import { spawn } from 'child_process';
+import { join } from 'path';
+
 import { GridState } from '../../shared/constants';
 import { getDb } from '../db';
 import { createLogger } from '../logger';
@@ -15,6 +21,29 @@ import { loadProfiles } from '../settings';
 import { createWorktree, findIdleWorktree, repurposeWorktree } from '../worktree';
 
 const logger = createLogger('worktree-setup');
+
+/**
+ * Spawns the profile's setup command in the background (detached + unref).
+ * The cwd is resolved relative to the worktree root.
+ * Failures are logged but never block the pipeline.
+ */
+function runSetupCommand(worktreePath: string, setup: { cwd: string; command: string }, taskId: number): void {
+  const cwd = join(worktreePath, setup.cwd);
+  logger.info(`Task #${taskId}: running setup command in background: "${setup.command}" (cwd: ${cwd})`);
+
+  try {
+    const child = spawn(setup.command, [], {
+      cwd,
+      shell: true,
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.unref();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error(`Task #${taskId}: failed to spawn setup command: ${message}`);
+  }
+}
 
 /**
  * Sets up worktrees for tasks that have been assigned a profile
@@ -86,6 +115,11 @@ export async function setupTaskWorktrees(): Promise<void> {
 
       // Track the newly assigned path so subsequent tasks don't pick the same one
       assignedPaths.add(worktreePath);
+
+      // Run profile setup command in the background if configured
+      if (profile.setup) {
+        runSetupCommand(worktreePath, profile.setup, task.id);
+      }
 
       logger.info(`Task #${task.id} worktree ready at ${worktreePath}`);
     } catch (err) {
