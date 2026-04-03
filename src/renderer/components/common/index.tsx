@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import styled from 'styled-components';
 
 import { trpc } from '../../trpc/client';
@@ -468,5 +468,116 @@ export function ActivityIndicator({ tooltip, color }: ActivityIndicatorProps) {
         <ActivitySquare key={i} $index={i} $color={color} />
       ))}
     </ActivityWrapper>
+  );
+}
+
+// ─── Overflow Menu (3 vertical dots) ─────────────────────
+
+const MenuWrapper = styled.div`
+  position: relative;
+  display: inline-flex;
+`;
+
+const MenuButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: ${({ theme }) => theme.radii.sm};
+  color: ${({ theme }) => theme.colors.overlay1};
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+
+  &:hover {
+    background: ${({ theme }) => theme.colors.surface1};
+    color: ${({ theme }) => theme.colors.text};
+  }
+`;
+
+const MenuDropdown = styled.div`
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 100;
+  min-width: 140px;
+  background: ${({ theme }) => theme.colors.surface0};
+  border: 1px solid ${({ theme }) => theme.colors.surface2};
+  border-radius: ${({ theme }) => theme.radii.sm};
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  padding: 4px 0;
+`;
+
+const MenuItem = styled.button`
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  color: ${({ theme }) => theme.colors.text};
+  font-size: 12px;
+  font-family: ${({ theme }) => theme.fonts.sans};
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+
+  &:hover {
+    background: ${({ theme }) => theme.colors.surface1};
+  }
+`;
+
+export interface OverflowMenuOption {
+  label: string;
+  onClick: () => void;
+}
+
+interface OverflowMenuProps {
+  options: OverflowMenuOption[];
+}
+
+/**
+ * A 3-vertical-dots overflow menu button that opens a dropdown of options.
+ */
+export function OverflowMenu({ options }: OverflowMenuProps) {
+  const [open, setOpen] = React.useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    if (!open) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [open]);
+
+  return (
+    <MenuWrapper ref={wrapperRef}>
+      <MenuButton onClick={() => setOpen((prev) => !prev)} title="More options">
+        &#8942;
+      </MenuButton>
+      {open && (
+        <MenuDropdown>
+          {options.map((option) => (
+            <MenuItem
+              key={option.label}
+              onClick={() => {
+                setOpen(false);
+                option.onClick();
+              }}
+            >
+              {option.label}
+            </MenuItem>
+          ))}
+        </MenuDropdown>
+      )}
+    </MenuWrapper>
   );
 }

@@ -4,7 +4,7 @@ import { BrowserWindow } from 'electron';
 import { join } from 'path';
 import { z } from 'zod';
 
-import { GRID_LABELS } from '../../shared/constants';
+import { GRID_LABELS, GridState } from '../../shared/constants';
 import { updateWorkItemState } from '../azure';
 import {
   clearSignals,
@@ -18,6 +18,7 @@ import {
 } from '../copilot';
 import { getCronStatus } from '../cron';
 import { getAzureConfig } from '../cron/config';
+import { cleanupCompletedTask } from '../cron/pr-check';
 import { getDb } from '../db';
 import {
   extractPrNumber,
@@ -27,7 +28,6 @@ import {
   getPrReviewComments,
   getPullRequestByUrl,
   isGhAuthenticated,
-  isPrReadyToMerge,
 } from '../github';
 import { getLogDir, getRecentLogs, getSessionLogs, listLogFiles, readLogFile } from '../logger';
 import type { LogLevel } from '../logger';
@@ -144,6 +144,42 @@ export const appRouter = t.router({
     return db.task.update({
       where: { id: input.taskId },
       data: { state: 'NON_HITL' },
+    });
+  }),
+
+  /**
+   * Reset a task back to Profile Assignment.
+   *
+   * Performs the same cleanup as task completion (detaches branch, parks
+   * worktree, closes virtual desktop) but moves the task back to
+   * PROFILE_ASSIGNMENT instead of COMPLETED, clearing all execution state.
+   */
+  resetTask: t.procedure.input(z.object({ taskId: z.number() })).mutation(async ({ input }) => {
+    const db = getDb();
+    const task = await db.task.findUniqueOrThrow({ where: { id: input.taskId } });
+
+    // Clean up resources (detach branch, park worktree, close virtual desktop)
+    await cleanupCompletedTask(task.id, task.worktreePath);
+
+    // Reset the task back to Profile Assignment with all execution state cleared
+    return db.task.update({
+      where: { id: input.taskId },
+      data: {
+        state: GridState.PROFILE_ASSIGNMENT,
+        disabled: false,
+        profileKey: null,
+        worktreePath: null,
+        sessionId: null,
+        model: null,
+        prUrl: null,
+        prMerged: false,
+        prUpdated: false,
+        skipCopilot: false,
+        validateFe: false,
+        completedAt: null,
+        errorMessage: null,
+        errorAt: null,
+      },
     });
   }),
 

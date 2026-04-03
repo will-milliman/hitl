@@ -7,6 +7,7 @@ import {
   ActionLink,
   ActivityIndicator,
   ExternalLink,
+  OverflowMenu,
   Placeholder,
   StatusIndicator,
   WorkItemTypeIcon,
@@ -19,9 +20,12 @@ const columnHelper = createColumnHelper<Task>();
 interface TaskExecutionGridProps {
   tasks: Task[];
   profiles: ProfileMap;
+  openDesktops: Set<number>;
+  setOpenDesktops: React.Dispatch<React.SetStateAction<Set<number>>>;
 }
 
-export function TaskExecutionGrid({ tasks, profiles }: TaskExecutionGridProps) {
+export function TaskExecutionGrid({ tasks, profiles, openDesktops, setOpenDesktops }: TaskExecutionGridProps) {
+  const utils = trpc.useContext();
   const openVSCode = trpc.openInVSCode.useMutation();
   const openTerminal = trpc.openInTerminal.useMutation();
   const openExternal = trpc.openExternal.useMutation();
@@ -29,9 +33,7 @@ export function TaskExecutionGrid({ tasks, profiles }: TaskExecutionGridProps) {
   const startCopilotSession = trpc.startCopilotSession.useMutation();
   const createVirtualDesktop = trpc.createVirtualDesktop.useMutation();
   const closeVirtualDesktop = trpc.closeVirtualDesktop.useMutation();
-
-  // Track which task IDs have an open virtual desktop
-  const [openDesktops, setOpenDesktops] = React.useState<Set<number>>(() => new Set());
+  const resetTask = trpc.resetTask.useMutation({ onSuccess: () => utils.tasks.invalidate() });
 
   const columns = useMemo(
     () => [
@@ -136,19 +138,15 @@ export function TaskExecutionGrid({ tasks, profiles }: TaskExecutionGridProps) {
           if (isOpen) {
             return (
               <ActionLink
-                onClick={async () => {
-                  try {
-                    await closeVirtualDesktop.mutateAsync({
-                      name: `Task #${row.id}`,
-                    });
-                  } catch (e) {
-                    console.error('[grid] closeVirtualDesktop failed:', e);
-                  }
+                onClick={() => {
                   setOpenDesktops((prev) => {
                     const next = new Set(prev);
                     next.delete(row.id);
                     return next;
                   });
+                  closeVirtualDesktop
+                    .mutateAsync({ name: `Task #${row.id}` })
+                    .catch((e) => console.error('[grid] closeVirtualDesktop failed:', e));
                 }}
                 title="Close all windows and remove this virtual desktop"
               >
@@ -213,11 +211,29 @@ export function TaskExecutionGrid({ tasks, profiles }: TaskExecutionGridProps) {
       }),
       columnHelper.accessor('prUrl', {
         header: 'Draft PR',
-        meta: { shrink: true, minWidth: 120 },
+        meta: { shrink: true, minWidth: 80 },
         cell: (info) => {
           const prUrl = info.getValue();
           if (!prUrl) return <Placeholder />;
           return <ExternalLink href={prUrl}>{prUrl.split('/').pop()}</ExternalLink>;
+        },
+      }),
+      columnHelper.display({
+        id: 'actions',
+        header: '',
+        meta: { fixedWidth: 50, overflowVisible: true },
+        cell: (info) => {
+          const row = info.row.original;
+          return (
+            <OverflowMenu
+              options={[
+                {
+                  label: 'Reset',
+                  onClick: () => resetTask.mutate({ taskId: row.id }),
+                },
+              ]}
+            />
+          );
         },
       }),
     ],
@@ -229,7 +245,9 @@ export function TaskExecutionGrid({ tasks, profiles }: TaskExecutionGridProps) {
       startCopilotSession,
       createVirtualDesktop,
       closeVirtualDesktop,
+      resetTask,
       openDesktops,
+      setOpenDesktops,
       profiles,
     ],
   );

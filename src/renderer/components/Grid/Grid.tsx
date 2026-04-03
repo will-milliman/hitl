@@ -15,6 +15,7 @@ interface ColumnMeta {
   fixedWidth?: number;
   shrink?: boolean;
   minWidth?: number;
+  overflowVisible?: boolean;
 }
 
 const Section = styled.div`
@@ -67,7 +68,6 @@ const TableWrapper = styled.div<{ $visible: boolean }>`
   display: ${({ $visible }) => ($visible ? 'block' : 'none')};
   border-left: 1px solid ${({ theme }) => theme.colors.surface0};
   border-right: 1px solid ${({ theme }) => theme.colors.surface0};
-  overflow: hidden;
 `;
 
 const Table = styled.table`
@@ -227,23 +227,22 @@ export function Grid<T>({
             <tbody>
               {table.getRowModel().rows.map((row) => (
                 <Tr key={row.id} $disabled={getRowDisabled?.(row.original)}>
-                  {row.getVisibleCells().map((cell) => (
-                    <Td
-                      key={cell.id}
-                      style={
-                        (cell.column.columnDef.meta as ColumnMeta)?.fixedWidth
-                          ? {
-                              width: (cell.column.columnDef.meta as ColumnMeta).fixedWidth,
-                              maxWidth: (cell.column.columnDef.meta as ColumnMeta).fixedWidth,
-                            }
-                          : (cell.column.columnDef.meta as ColumnMeta)?.shrink
-                            ? { width: '1px' }
-                            : undefined
-                      }
-                    >
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </Td>
-                  ))}
+                  {row.getVisibleCells().map((cell) => {
+                    const meta = cell.column.columnDef.meta as ColumnMeta | undefined;
+                    const baseStyle: React.CSSProperties = meta?.fixedWidth
+                      ? { width: meta.fixedWidth, maxWidth: meta.fixedWidth }
+                      : meta?.shrink
+                        ? { width: '1px' }
+                        : {};
+                    if (meta?.overflowVisible) {
+                      baseStyle.overflow = 'visible';
+                    }
+                    return (
+                      <Td key={cell.id} style={baseStyle}>
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </Td>
+                    );
+                  })}
                 </Tr>
               ))}
             </tbody>

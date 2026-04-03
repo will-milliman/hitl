@@ -1,6 +1,5 @@
 import { createColumnHelper } from '@tanstack/react-table';
 import React, { useMemo } from 'react';
-import styled from 'styled-components';
 
 import { GridState } from '../../shared/constants';
 import type { ProfileMap, Task } from '../../shared/types';
@@ -9,6 +8,7 @@ import {
   ActionLink,
   ActivityIndicator,
   ExternalLink,
+  OverflowMenu,
   Placeholder,
   StatusIndicator,
   WorkItemTypeIcon,
@@ -18,35 +18,15 @@ import { trpc } from '../trpc/client';
 
 const columnHelper = createColumnHelper<Task>();
 
-const GridButton = styled.button<{ $color: string }>`
-  background: ${({ $color }) => $color};
-  color: ${({ theme }) => theme.colors.base};
-  border: none;
-  padding: 5px 10px;
-  font-size: 11px;
-  font-weight: 600;
-  font-family: ${({ theme }) => theme.fonts.sans};
-  cursor: pointer;
-  transition:
-    background 0.15s,
-    opacity 0.15s;
-
-  &:hover {
-    opacity: 0.85;
-  }
-
-  &:disabled {
-    opacity: 0.35;
-    cursor: not-allowed;
-  }
-`;
-
 interface ReviewGridProps {
   tasks: Task[];
   profiles: ProfileMap;
+  openDesktops: Set<number>;
+  setOpenDesktops: React.Dispatch<React.SetStateAction<Set<number>>>;
 }
 
-export function ReviewGrid({ tasks, profiles }: ReviewGridProps) {
+export function ReviewGrid({ tasks, profiles, openDesktops, setOpenDesktops }: ReviewGridProps) {
+  const utils = trpc.useContext();
   const openVSCode = trpc.openInVSCode.useMutation();
   const openTerminal = trpc.openInTerminal.useMutation();
   const openExternal = trpc.openExternal.useMutation();
@@ -54,9 +34,7 @@ export function ReviewGrid({ tasks, profiles }: ReviewGridProps) {
   const createVirtualDesktop = trpc.createVirtualDesktop.useMutation();
   const closeVirtualDesktop = trpc.closeVirtualDesktop.useMutation();
   const startFixSession = trpc.startFixSession.useMutation();
-
-  // Track which task IDs have an open virtual desktop
-  const [openDesktops, setOpenDesktops] = React.useState<Set<number>>(() => new Set());
+  const resetTask = trpc.resetTask.useMutation({ onSuccess: () => utils.tasks.invalidate() });
 
   const columns = useMemo(
     () => [
@@ -151,19 +129,15 @@ export function ReviewGrid({ tasks, profiles }: ReviewGridProps) {
           if (isOpen) {
             return (
               <ActionLink
-                onClick={async () => {
-                  try {
-                    await closeVirtualDesktop.mutateAsync({
-                      name: `Task #${row.id}`,
-                    });
-                  } catch (e) {
-                    console.error('[grid] closeVirtualDesktop failed:', e);
-                  }
+                onClick={() => {
                   setOpenDesktops((prev) => {
                     const next = new Set(prev);
                     next.delete(row.id);
                     return next;
                   });
+                  closeVirtualDesktop
+                    .mutateAsync({ name: `Task #${row.id}` })
+                    .catch((e) => console.error('[grid] closeVirtualDesktop failed:', e));
                 }}
                 title="Close all windows and remove this virtual desktop"
               >
@@ -220,8 +194,8 @@ export function ReviewGrid({ tasks, profiles }: ReviewGridProps) {
         },
       }),
       columnHelper.accessor('prUrl', {
-        header: 'Pull Request',
-        meta: { shrink: true, minWidth: 120 },
+        header: 'Open PR',
+        meta: { shrink: true, minWidth: 80 },
         cell: (info) => {
           const prUrl = info.getValue();
           if (!prUrl) return <Placeholder />;
@@ -229,25 +203,17 @@ export function ReviewGrid({ tasks, profiles }: ReviewGridProps) {
         },
       }),
       columnHelper.display({
-        id: 'fix',
+        id: 'actions',
         header: '',
-        meta: { fixedWidth: 60 },
+        meta: { fixedWidth: 50, overflowVisible: true },
         cell: (info) => {
           const row = info.row.original;
-          // Show Fix button only when PR is not ready (disabled) and no session is running
-          if (!row.disabled || !row.worktreePath || !row.prUrl) return null;
-          // If a session is actively running (disabled + sessionId), don't show Fix
-          if (row.sessionId) return null;
-          return (
-            <GridButton
-              $color={theme.colors.yellow}
-              onClick={() => startFixSession.mutate({ taskId: row.id })}
-              disabled={startFixSession.isPending}
-              title="Start a copilot session to fix PR issues (failing checks, unresolved comments)"
-            >
-              Fix
-            </GridButton>
-          );
+          const canFix = row.disabled && !row.sessionId && !!row.worktreePath && !!row.prUrl;
+          const options = [
+            ...(canFix ? [{ label: 'Fix', onClick: () => startFixSession.mutate({ taskId: row.id }) }] : []),
+            { label: 'Reset', onClick: () => resetTask.mutate({ taskId: row.id }) },
+          ];
+          return <OverflowMenu options={options} />;
         },
       }),
     ],
@@ -259,7 +225,9 @@ export function ReviewGrid({ tasks, profiles }: ReviewGridProps) {
       createVirtualDesktop,
       closeVirtualDesktop,
       startFixSession,
+      resetTask,
       openDesktops,
+      setOpenDesktops,
       profiles,
     ],
   );

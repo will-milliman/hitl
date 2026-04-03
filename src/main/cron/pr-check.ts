@@ -377,7 +377,7 @@ async function closeVirtualDesktop(taskId: number): Promise<void> {
  * Cleanup failures are logged but never block the COMPLETED transition —
  * the state change has already been committed before this is called.
  */
-async function cleanupCompletedTask(taskId: number, worktreePath: string | null): Promise<void> {
+export async function cleanupCompletedTask(taskId: number, worktreePath: string | null): Promise<void> {
   const db = getDb();
 
   // Detach the git branch so the worktree can be reused with a new branch.
@@ -448,6 +448,17 @@ async function updatePrReadiness(): Promise<void> {
 
       // Skip merged/closed PRs (handled by checkTaskPRMerges)
       if (pr.state === 'MERGED' || pr.state === 'CLOSED') continue;
+
+      // If the PR has been converted back to a draft, move the task
+      // back to TASK_EXECUTION so the developer can continue iterating.
+      if (pr.isDraft) {
+        logger.info(`Task #${task.id} PR has been converted back to draft — moving to TASK_EXECUTION`);
+        await db.task.update({
+          where: { id: task.id },
+          data: { state: GridState.TASK_EXECUTION, disabled: false },
+        });
+        continue;
+      }
 
       const ready = isPrReadyToMerge(pr);
       const shouldBeDisabled = !ready;

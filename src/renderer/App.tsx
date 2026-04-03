@@ -108,6 +108,10 @@ function AppContent() {
     return grouped;
   }, [tasks]);
 
+  // Shared virtual desktop tracking — lifted here so desktop state
+  // persists when a task moves between Task Execution and PR Review.
+  const [openDesktops, setOpenDesktops] = useState<Set<number>>(() => new Set());
+
   const handleAssignProfile = (taskId: number, profileKey: string, skipCopilot: boolean, model: string, validateFe: boolean) => {
     assignTaskProfileMutation.mutate({ taskId, profileKey, skipCopilot, model, validateFe });
   };
@@ -129,8 +133,18 @@ function AppContent() {
         onAssignProfile={handleAssignProfile}
         onMarkNonHitl={handleMarkNonHitl}
       />
-      <TaskExecutionGrid tasks={tasksByState[GridState.TASK_EXECUTION]} profiles={profiles} />
-      <ReviewGrid tasks={tasksByState[GridState.PR_REVIEW]} profiles={profiles} />
+      <TaskExecutionGrid
+        tasks={tasksByState[GridState.TASK_EXECUTION]}
+        profiles={profiles}
+        openDesktops={openDesktops}
+        setOpenDesktops={setOpenDesktops}
+      />
+      <ReviewGrid
+        tasks={tasksByState[GridState.PR_REVIEW]}
+        profiles={profiles}
+        openDesktops={openDesktops}
+        setOpenDesktops={setOpenDesktops}
+      />
       <CompletedGrid tasks={tasksByState[GridState.COMPLETED]} />
       <BlockedGrid tasks={tasksByState[GridState.BLOCKED]} />
       <AbandonedGrid tasks={tasksByState[GridState.ABANDONED]} />
