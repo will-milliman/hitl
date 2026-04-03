@@ -23,11 +23,25 @@
  * All GitHub operations use the `gh` CLI (authenticated via `gh auth login`).
  */
 import { exec, execFile } from 'child_process';
+import { existsSync, readFileSync } from 'fs';
 import { promisify } from 'util';
 
 import { GridState } from '../../shared/constants';
+import { getPrSummaryPath, getScreenshotsDir } from '../copilot';
 import { getDb } from '../db';
-import { createPullRequest, findPullRequest, getPullRequestByUrl, isGhAuthenticated, isPrReadyToMerge } from '../github';
+import {
+  buildScreenshotMarkdown,
+  buildValidationErrorMarkdown,
+  commitScreenshots,
+  createPullRequest,
+  discoverScreenshots,
+  findPullRequest,
+  getPullRequestByUrl,
+  getRepoInfo,
+  isGhAuthenticated,
+  isPrReadyToMerge,
+  readValidationError,
+} from '../github';
 import { createLogger } from '../logger';
 import { notifyTaskCompleted } from '../notifications';
 import { loadProfiles } from '../settings';
@@ -36,6 +50,105 @@ import { getCurrentBranch } from '../worktree';
 const logger = createLogger('pr-check');
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
+
+// ─── PR summary helpers ─────────────────────────────────
+
+interface PrSummary {
+  /** Title extracted from the first `# ` heading */
+  title: string;
+  /** Everything after the heading */
+  body: string;
+}
+
+/**
+ * Reads the PR.md file that Copilot writes at the end of its session.
+ *
+ * Expected format:
+ * ```
+ * # <PR title>
+ *
+ * <markdown body>
+ * ```
+ *
+ * Returns null if the file doesn't exist or can't be parsed.
+ */
+function readPrSummary(worktreePath: string): PrSummary | null {
+  const summaryPath = getPrSummaryPath(worktreePath);
+
+  if (!existsSync(summaryPath)) {
+    logger.info('No PR.md found — Copilot did not write a PR summary');
+    return null;
+  }
+
+  try {
+    const content = readFileSync(summaryPath, 'utf-8').trim();
+    if (!content) return null;
+
+    // Extract title from first `# ` heading
+    const match = content.match(/^#\s+(.+)/m);
+    if (!match) {
+      logger.warn('PR.md has no heading — using entire content as body');
+      return null;
+    }
+
+    const title = match[1].trim();
+    // Body is everything after the heading line
+    const headingEnd = content.indexOf('\n', content.indexOf(match[0]));
+    const body = headingEnd >= 0 ? content.slice(headingEnd + 1).trim() : '';
+
+    return { title, body };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.warn(`Failed to read PR.md: ${message}`);
+    return null;
+  }
+}
+
+/**
+ * Builds the validation section for a PR body.
+ *
+ * Discovers screenshots saved by Copilot during FE validation,
+ * commits them to the task branch, and builds markdown image
+ * references using raw.githubusercontent.com URLs.
+ *
+ * If no screenshots exist but a validation error was recorded,
+ * includes the error text instead.
+ */
+async function buildValidationSection(worktreePath: string, branchName: string): Promise<string> {
+  const screenshotDir = getScreenshotsDir(worktreePath);
+
+  // Check for validation error first
+  const validationError = readValidationError(screenshotDir);
+  if (validationError) {
+    logger.info('FE validation reported an error, including in PR body');
+    return buildValidationErrorMarkdown(validationError);
+  }
+
+  // Discover screenshots
+  const screenshotPaths = discoverScreenshots(screenshotDir);
+  if (screenshotPaths.length === 0) {
+    logger.info('No validation screenshots found');
+    return '';
+  }
+
+  logger.info(`Found ${screenshotPaths.length} validation screenshots, committing to branch`);
+
+  // Commit screenshots to the branch
+  const committed = await commitScreenshots(screenshotPaths, worktreePath);
+  if (committed.length === 0) {
+    logger.warn('Failed to commit validation screenshots');
+    return '';
+  }
+
+  // Get repo info for building raw URLs
+  try {
+    const repoInfo = await getRepoInfo(worktreePath);
+    return buildScreenshotMarkdown(committed, repoInfo.owner, repoInfo.repo, branchName);
+  } catch (err) {
+    logger.error(`Failed to get repo info for screenshot URLs: ${err}`);
+    return '';
+  }
+}
 
 /**
  * Gets the default branch for a task's profile.
@@ -116,21 +229,34 @@ async function createDraftPRs(): Promise<void> {
         logger.info(`PR already exists for task #${task.id}: ${existing.url}`);
         prUrl = existing.url;
       } else {
-        // Create a draft PR targeting the default branch
+        // Build validation section for PR body (if FE validation was enabled)
+        let validationMarkdown = '';
+        if (task.validateFe) {
+          validationMarkdown = await buildValidationSection(worktreePath, taskBranch);
+        }
+
+        // Read the PR summary written by Copilot (PR.md)
+        const summary = readPrSummary(worktreePath);
+
+        const prTitle = summary?.title ?? `Task #${task.id}: ${task.title}`;
         const storyContext = task.story ? `\n**Story**: #${task.story.id} — ${task.story.title}\n` : '';
 
+        const bodyParts: string[] = [];
+
+        if (summary?.body) {
+          bodyParts.push(summary.body, '');
+        } else {
+          bodyParts.push(`Implements changes for Task #${task.id}.`, '');
+        }
+
+        if (storyContext) bodyParts.push(storyContext);
+        if (validationMarkdown) bodyParts.push(validationMarkdown);
+
+        bodyParts.push('---', `AB#${task.id}`);
+
         const pr = await createPullRequest(worktreePath, {
-          title: `Task #${task.id}: ${task.title}`,
-          body: [
-            `## Task #${task.id}`,
-            '',
-            `**Task**: ${task.title}`,
-            storyContext,
-            `This PR implements the changes for Task #${task.id}.`,
-            '',
-            `---`,
-            `*Created by HITL Orchestrator*`,
-          ].join('\n'),
+          title: prTitle,
+          body: bodyParts.filter(Boolean).join('\n'),
           head: taskBranch,
           base: defaultBranch,
           draft: true,

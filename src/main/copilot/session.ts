@@ -37,6 +37,12 @@ const LOGS_SUBDIR = 'logs';
 /** Subdirectory name for signal files */
 const SIGNALS_SUBDIR = 'signals';
 
+/** Subdirectory name for FE validation screenshots */
+const SCREENSHOTS_SUBDIR = 'screenshots';
+
+/** File name for the PR summary written by Copilot at end of session */
+const PR_SUMMARY_FILE = 'PR.md';
+
 /**
  * Gets the external data directory for a worktree.
  *
@@ -62,6 +68,22 @@ export function getLogDir(worktreePath: string): string {
  */
 export function getSignalDir(worktreePath: string): string {
   return join(getWorktreeDataDir(worktreePath), SIGNALS_SUBDIR);
+}
+
+/**
+ * Gets the screenshots directory path for a worktree (outside the worktree).
+ * Used for FE validation — Copilot saves screenshots here.
+ */
+export function getScreenshotsDir(worktreePath: string): string {
+  return join(getWorktreeDataDir(worktreePath), SCREENSHOTS_SUBDIR);
+}
+
+/**
+ * Gets the path where Copilot should write its PR summary (PR.md).
+ * Lives alongside logs/signals/screenshots in the worktree data dir.
+ */
+export function getPrSummaryPath(worktreePath: string): string {
+  return join(getWorktreeDataDir(worktreePath), PR_SUMMARY_FILE);
 }
 
 /** Signal file names written by hooks */
@@ -92,17 +114,19 @@ export interface SpawnSessionResult {
 }
 
 /**
- * Ensures the logs and signals directories exist for a worktree.
+ * Ensures the logs, signals, and screenshots directories exist for a worktree.
  * These are stored outside the worktree in a temp directory.
  */
-export function ensureDirs(worktreePath: string): { logDir: string; signalDir: string } {
+export function ensureDirs(worktreePath: string): { logDir: string; signalDir: string; screenshotsDir: string } {
   const logDir = getLogDir(worktreePath);
   const signalDir = getSignalDir(worktreePath);
+  const screenshotsDir = getScreenshotsDir(worktreePath);
 
   if (!existsSync(logDir)) mkdirSync(logDir, { recursive: true });
   if (!existsSync(signalDir)) mkdirSync(signalDir, { recursive: true });
+  if (!existsSync(screenshotsDir)) mkdirSync(screenshotsDir, { recursive: true });
 
-  return { logDir, signalDir };
+  return { logDir, signalDir, screenshotsDir };
 }
 
 /**

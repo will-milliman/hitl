@@ -3,7 +3,7 @@ import React, { useMemo } from 'react';
 import styled from 'styled-components';
 
 import { COPILOT_MODELS, DEFAULT_COPILOT_MODEL } from '../../shared/constants';
-import type { Task } from '../../shared/types';
+import type { ProfileMap, Task } from '../../shared/types';
 import { Grid } from '../components/Grid';
 import {
   ExternalLink,
@@ -48,19 +48,22 @@ const GridButton = styled.button<{ $color: string }>`
 
 interface ProfileAssignmentGridProps {
   tasks: Task[];
-  profiles: string[];
-  onAssignProfile: (taskId: number, profileKey: string, skipCopilot: boolean, model: string) => void;
+  profiles: ProfileMap;
+  onAssignProfile: (taskId: number, profileKey: string, skipCopilot: boolean, model: string, validateFe: boolean) => void;
   onMarkNonHitl: (taskId: number) => void;
 }
 
 export function ProfileAssignmentGrid({ tasks, profiles, onAssignProfile, onMarkNonHitl }: ProfileAssignmentGridProps) {
   const [skipCopilotMap, setSkipCopilotMap] = React.useState<Record<number, boolean>>({});
+  const [validateFeMap, setValidateFeMap] = React.useState<Record<number, boolean>>({});
 
   // Local state for selected profiles (not yet executed)
   const [selectedProfileMap, setSelectedProfileMap] = React.useState<Record<number, string>>({});
 
   // Local state for selected models (not yet executed)
   const [selectedModelMap, setSelectedModelMap] = React.useState<Record<number, string>>({});
+
+  const profileKeys = useMemo(() => Object.keys(profiles), [profiles]);
 
   const columns = useMemo(
     () => [
@@ -106,6 +109,37 @@ export function ProfileAssignmentGrid({ tasks, profiles, onAssignProfile, onMark
         },
       }),
       columnHelper.display({
+        id: 'validateFe',
+        header: 'Validate FE',
+        meta: { fixedWidth: 110 },
+        cell: (info) => {
+          const taskId = info.row.original.id;
+          const selectedProfile = selectedProfileMap[taskId] ?? info.row.original.profileKey ?? '';
+          const profileHasValidation = selectedProfile ? !!profiles[selectedProfile]?.validation : false;
+          const checked = validateFeMap[taskId] ?? false;
+
+          if (!profileHasValidation) {
+            return (
+              <StyledCheckbox type="checkbox" checked={false} disabled title="Selected profile does not support FE validation" />
+            );
+          }
+
+          return (
+            <StyledCheckbox
+              type="checkbox"
+              checked={checked}
+              onChange={(e) => {
+                setValidateFeMap((prev) => ({
+                  ...prev,
+                  [taskId]: e.target.checked,
+                }));
+              }}
+              title="Run Playwright FE validation before creating PR"
+            />
+          );
+        },
+      }),
+      columnHelper.display({
         id: 'profile',
         header: 'Profile',
         meta: { fixedWidth: 176 },
@@ -114,12 +148,17 @@ export function ProfileAssignmentGrid({ tasks, profiles, onAssignProfile, onMark
           const selected = selectedProfileMap[taskId] ?? info.row.original.profileKey ?? '';
           return (
             <ProfileSelect
-              profiles={profiles}
+              profiles={profileKeys}
               value={selected}
               onChange={(value) => {
                 setSelectedProfileMap((prev) => ({
                   ...prev,
                   [taskId]: value,
+                }));
+                // Reset validateFe when profile changes (new profile may not support it)
+                setValidateFeMap((prev) => ({
+                  ...prev,
+                  [taskId]: false,
                 }));
               }}
             />
@@ -161,7 +200,7 @@ export function ProfileAssignmentGrid({ tasks, profiles, onAssignProfile, onMark
               disabled={!hasProfile}
               onClick={() => {
                 if (hasProfile) {
-                  onAssignProfile(taskId, profileKey, skipCopilotMap[taskId] ?? false, model);
+                  onAssignProfile(taskId, profileKey, skipCopilotMap[taskId] ?? false, model, validateFeMap[taskId] ?? false);
                 }
               }}
               title={hasProfile ? 'Move task to Task Execution' : 'Select a profile first'}
@@ -194,7 +233,7 @@ export function ProfileAssignmentGrid({ tasks, profiles, onAssignProfile, onMark
         },
       }),
     ],
-    [profiles, onAssignProfile, onMarkNonHitl, skipCopilotMap, selectedProfileMap, selectedModelMap],
+    [profiles, profileKeys, onAssignProfile, onMarkNonHitl, skipCopilotMap, validateFeMap, selectedProfileMap, selectedModelMap],
   );
 
   return <Grid title="Profile Assignment" data={tasks} columns={columns} accentColor={theme.colors.mauve} />;

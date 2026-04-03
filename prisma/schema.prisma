@@ -32,6 +32,7 @@ model Task {
   azureUrl     String                           // Azure DevOps work item URL
   disabled     Boolean   @default(false)        // Whether item is disabled in the grid
   skipCopilot  Boolean   @default(false)        // Skip automatic copilot session (manual mode)
+  validateFe   Boolean   @default(false)        // Run Playwright FE validation before PR
   prUpdated    Boolean   @default(false)        // Flag: GitHub webhook indicated PR update
   completedAt  DateTime?                        // When the task was moved to COMPLETED
   errorMessage String?                          // Last error message (null = no error)

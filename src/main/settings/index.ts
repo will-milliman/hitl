@@ -36,6 +36,11 @@ export interface AppSettings {
       defaultBranch: string;
       description?: string;
       workspace?: string;
+      /** FE validation config — if present, the repo supports Playwright-based visual validation */
+      validation?: {
+        /** Path to the Copilot skill file in the repo (e.g. ".github/copilot/skills/validate-fe.md") */
+        skillPath: string;
+      };
     }
   >;
 
@@ -189,7 +194,13 @@ export function clearSettingsCache(): void {
  */
 export function loadProfiles(): Record<
   string,
-  { repoPath: string; defaultBranch: string; description?: string; workspace?: string }
+  {
+    repoPath: string;
+    defaultBranch: string;
+    description?: string;
+    workspace?: string;
+    validation?: { skillPath: string };
+  }
 > {
   const profiles = { ...loadSettings().profiles };
 

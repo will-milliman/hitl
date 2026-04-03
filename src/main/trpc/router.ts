@@ -6,11 +6,29 @@ import { z } from 'zod';
 
 import { GRID_LABELS } from '../../shared/constants';
 import { updateWorkItemState } from '../azure';
-import { getActiveWatcherCount, openSessionInTerminal, startInteractiveSession } from '../copilot';
+import {
+  clearSignals,
+  ensureGlobalHooks,
+  getActiveWatcherCount,
+  isWatching,
+  openSessionInTerminal,
+  spawnSession,
+  startInteractiveSession,
+  watchSignals,
+} from '../copilot';
 import { getCronStatus } from '../cron';
 import { getAzureConfig } from '../cron/config';
 import { getDb } from '../db';
-import { isGhAuthenticated } from '../github';
+import {
+  extractPrNumber,
+  extractRepoFromPrUrl,
+  findUnresolvedThreads,
+  formatCommentsForPrompt,
+  getPrReviewComments,
+  getPullRequestByUrl,
+  isGhAuthenticated,
+  isPrReadyToMerge,
+} from '../github';
 import { getLogDir, getRecentLogs, getSessionLogs, listLogFiles, readLogFile } from '../logger';
 import type { LogLevel } from '../logger';
 import { loadProfiles, loadSettings, updateSettings } from '../settings';
@@ -90,6 +108,7 @@ export const appRouter = t.router({
         profileKey: z.string(),
         skipCopilot: z.boolean().optional(),
         model: z.string().optional(),
+        validateFe: z.boolean().optional(),
       }),
     )
     .mutation(async ({ input }) => {
@@ -114,6 +133,7 @@ export const appRouter = t.router({
           disabled: input.skipCopilot ? false : true, // If skipping copilot, don't disable (user acts manually)
           skipCopilot: input.skipCopilot ?? false,
           model: input.model ?? null,
+          validateFe: input.validateFe ?? false,
         },
       });
     }),
@@ -440,6 +460,106 @@ export const appRouter = t.router({
       return result;
     }),
 
+  /** Start a copilot session to fix PR issues (failing checks, unresolved comments) */
+  startFixSession: t.procedure
+    .input(
+      z.object({
+        taskId: z.number(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const db = getDb();
+      const task = await db.task.findUnique({ where: { id: input.taskId } });
+      if (!task) throw new Error(`Task #${input.taskId} not found`);
+      if (!task.worktreePath) throw new Error(`Task #${input.taskId} has no worktree`);
+      if (!task.prUrl) throw new Error(`Task #${input.taskId} has no PR`);
+
+      const worktreePath = task.worktreePath;
+      const prUrl = task.prUrl;
+
+      // Fetch PR details to understand what's wrong
+      const pr = await getPullRequestByUrl(prUrl, worktreePath);
+
+      // Build context about what needs fixing
+      const issues: string[] = [];
+
+      // Check for failing status checks
+      if (pr.statusCheckRollup && pr.statusCheckRollup.length > 0) {
+        const failing = pr.statusCheckRollup.filter(
+          (check) => check.conclusion !== 'SUCCESS' && check.conclusion !== 'NEUTRAL' && check.conclusion !== 'SKIPPED',
+        );
+        if (failing.length > 0) {
+          issues.push(
+            `## Failing CI Checks\n\nThe following CI checks are failing:\n${failing.map((c) => `- **${c.conclusion ?? 'PENDING'}**: status=${c.status}`).join('\n')}\n\nPlease investigate the CI failures, fix the underlying issues, and push the changes.`,
+          );
+        }
+      }
+
+      // Check for review decision
+      if (pr.reviewDecision === 'CHANGES_REQUESTED') {
+        issues.push(`## Changes Requested\n\nReviewers have requested changes on this PR.`);
+      }
+
+      // Check for unresolved review comments
+      const repoInfo = extractRepoFromPrUrl(prUrl);
+      const prNumber = extractPrNumber(prUrl);
+      if (repoInfo && prNumber) {
+        const comments = await getPrReviewComments(worktreePath, repoInfo.owner, repoInfo.repo, prNumber);
+        const unresolved = findUnresolvedThreads(comments, pr.author.login);
+        if (unresolved.length > 0) {
+          issues.push(formatCommentsForPrompt(unresolved));
+        }
+      }
+
+      if (issues.length === 0) {
+        issues.push(
+          'The PR appears to have issues preventing it from being merged. Please review the PR and fix any problems you find.',
+        );
+      }
+
+      const prompt = `You are fixing issues on an existing pull request.
+
+Task #${task.id}: ${task.title}
+PR: ${prUrl}
+
+${issues.join('\n\n')}
+
+After making your fixes:
+1. Commit your changes with a clear message referencing Task #${task.id}.
+2. Push your changes to update the PR.
+3. Do NOT create a new pull request.`;
+
+      // Mark task as disabled (agent working) and clear old session
+      await db.task.update({
+        where: { id: input.taskId },
+        data: { disabled: true },
+      });
+
+      // Clear old signals and ensure hooks
+      clearSignals(worktreePath);
+      ensureGlobalHooks();
+
+      // Spawn the fix session
+      const { sessionId } = await spawnSession({
+        cwd: worktreePath,
+        prompt,
+        model: task.model ?? undefined,
+      });
+
+      // Save session ID to database
+      await db.task.update({
+        where: { id: input.taskId },
+        data: { sessionId },
+      });
+
+      // Start watching for signals
+      if (!isWatching(worktreePath)) {
+        watchSignals(worktreePath, 'task', input.taskId);
+      }
+
+      return { success: true, sessionId };
+    }),
+
   /** List all worktrees for a given profile */
   listWorktrees: t.procedure.input(z.object({ profileKey: z.string() })).query(async ({ input }) => {
     const profiles = loadProfiles();
@@ -546,6 +666,11 @@ export const appRouter = t.router({
               defaultBranch: z.string(),
               description: z.string().optional(),
               workspace: z.string().optional(),
+              validation: z
+                .object({
+                  skillPath: z.string(),
+                })
+                .optional(),
             }),
           )
           .optional(),

@@ -18,9 +18,20 @@
 import { existsSync } from 'fs';
 
 import { GridState } from '../../shared/constants';
-import { SIGNAL_FILES, ensureGlobalHooks, getLogDir, isWatching, readLatestSignal, spawnSession, watchSignals } from '../copilot';
+import {
+  SIGNAL_FILES,
+  ensureGlobalHooks,
+  getLogDir,
+  getPrSummaryPath,
+  getScreenshotsDir,
+  isWatching,
+  readLatestSignal,
+  spawnSession,
+  watchSignals,
+} from '../copilot';
 import { getDb } from '../db';
 import { createLogger } from '../logger';
+import { loadProfiles } from '../settings';
 
 const logger = createLogger('task-exec');
 
@@ -28,10 +39,18 @@ const logger = createLogger('task-exec');
  * The task execution prompt sent to Copilot CLI.
  *
  * Instructs the agent to implement the task as described.
+ * When FE validation is enabled, appends instructions to validate
+ * UI changes using the repo's Playwright skill and save screenshots.
  */
-function buildTaskPrompt(taskId: number, taskTitle: string, storyTitle?: string): string {
+function buildTaskPrompt(
+  taskId: number,
+  taskTitle: string,
+  storyTitle?: string,
+  validation?: { screenshotDir: string },
+  prSummaryPath?: string,
+): string {
   const storyContext = storyTitle ? `\nParent Story: ${storyTitle}\n` : '';
-  return `You are implementing a development task.
+  let prompt = `You are implementing a development task.
 ${storyContext}
 Task #${taskId}: ${taskTitle}
 
@@ -43,9 +62,46 @@ Your goal is to implement this task completely. Please:
 4. Write or update tests if the project has a test suite.
 5. Commit your changes with a clear, descriptive commit message referencing Task #${taskId}.
 
-After implementing, create a pull request targeting the default branch (e.g., main).
+Do NOT create a pull request — that will be handled separately.
 
 Focus on quality and correctness. Ask for clarification if the task description is ambiguous.`;
+
+  if (prSummaryPath) {
+    prompt += `
+
+## PR Summary
+
+After committing all your changes, write a PR summary file to:
+${prSummaryPath}
+
+The file must use this exact format:
+
+\`\`\`
+# <a concise PR title summarising the changes you made>
+
+<a markdown body describing what was changed and why — include bullet points for each meaningful change>
+\`\`\`
+
+The title (first heading) should be a short, descriptive summary of the actual code changes (NOT just the task title).
+The body should help a reviewer understand the scope and purpose of the changes.
+Do NOT commit this file — just write it to the path above.`;
+  }
+
+  if (validation) {
+    prompt += `
+
+## Frontend Validation
+
+After implementing and committing your changes, validate that the UI works correctly:
+
+1. Follow the Playwright validation skill in this repo for instructions on how to start the app and capture screenshots.
+2. Save all screenshots to: ${validation.screenshotDir}
+3. Name screenshots descriptively (e.g., login-page-updated.png, dashboard-new-widget.png).
+4. If the app fails to start or screenshots cannot be captured, document the issue in a file at ${validation.screenshotDir}/validation-error.txt instead.
+5. Make sure to stop the dev server when you are done.`;
+  }
+
+  return prompt;
 }
 
 /**
@@ -168,11 +224,24 @@ export async function runTaskExecutionStep(): Promise<void> {
       // Ensure global hooks are configured
       ensureGlobalHooks();
 
+      // Determine if FE validation is enabled for this task
+      let validation: { screenshotDir: string } | undefined;
+      if (task.validateFe && task.profileKey) {
+        const profiles = loadProfiles();
+        const profile = profiles[task.profileKey];
+        if (profile?.validation) {
+          const screenshotDir = getScreenshotsDir(worktreePath);
+          validation = { screenshotDir };
+          logger.info(`Task #${task.id}: FE validation enabled, screenshots → ${screenshotDir}`);
+        }
+      }
+
       // Spawn a copilot session
       logger.info(`Spawning execution session for task #${task.id} (model: ${task.model ?? 'default'})`);
+      const prSummaryPath = getPrSummaryPath(worktreePath);
       const { sessionId } = await spawnSession({
         cwd: worktreePath,
-        prompt: buildTaskPrompt(task.id, task.title, task.story?.title),
+        prompt: buildTaskPrompt(task.id, task.title, task.story?.title, validation, prSummaryPath),
         model: task.model ?? undefined,
       });
 

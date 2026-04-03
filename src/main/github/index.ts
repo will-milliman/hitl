@@ -6,6 +6,7 @@
  * - Review comment fetching and thread analysis
  * - Auth status checking
  * - Repo info extraction
+ * - Screenshot upload for FE validation
  */
 
 export {
@@ -29,3 +30,13 @@ export {
   type CreatePRParams,
   type ReviewComment,
 } from './client';
+
+export {
+  SCREENSHOTS_SUBDIR,
+  getScreenshotDir,
+  discoverScreenshots,
+  readValidationError,
+  commitScreenshots,
+  buildScreenshotMarkdown,
+  buildValidationErrorMarkdown,
+} from './screenshots';

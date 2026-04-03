@@ -21,6 +21,7 @@ export interface Task {
   azureUrl: string;
   disabled: boolean;
   skipCopilot: boolean;
+  validateFe: boolean;
   prUpdated: boolean;
   completedAt: Date | string | null;
   errorMessage: string | null;
@@ -37,6 +38,11 @@ export interface Profile {
   description?: string;
   /** Optional path to a .code-workspace file (relative to repoPath) */
   workspace?: string;
+  /** FE validation config — if present, the repo supports Playwright-based visual validation */
+  validation?: {
+    /** Path to the Copilot skill file in the repo (e.g. ".github/copilot/skills/validate-fe.md") */
+    skillPath: string;
+  };
 }
 
 /** Profile map keyed by profile name */

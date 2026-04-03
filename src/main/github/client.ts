@@ -49,6 +49,7 @@ export interface CreatePRParams {
   body: string;
   head: string; // source branch
   base: string; // target branch
+  /** Whether to create a draft PR (defaults to true) */
   draft?: boolean;
 }
 
@@ -188,11 +189,12 @@ export function parseRemoteUrl(remoteUrl: string): RepoInfo {
  * the repo context.
  */
 export async function createPullRequest(cwd: string, params: CreatePRParams): Promise<PullRequest> {
-  console.log(`[github] Creating PR: ${params.head} → ${params.base} in ${cwd}${params.draft ? ' (draft)' : ''}`);
+  const draft = params.draft ?? true;
+  console.log(`[github] Creating PR: ${params.head} → ${params.base} in ${cwd}${draft ? ' (draft)' : ''}`);
 
   const args = ['pr', 'create', '--title', params.title, '--body', params.body, '--head', params.head, '--base', params.base];
 
-  if (params.draft) {
+  if (draft) {
     args.push('--draft');
   }
 

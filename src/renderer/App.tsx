@@ -90,8 +90,6 @@ function AppContent() {
 
   const tasks = useMemo(() => tasksQuery.data ?? [], [tasksQuery.data]);
   const profiles = useMemo(() => profilesQuery.data ?? ({} as ProfileMap), [profilesQuery.data]);
-  const profileKeys = useMemo(() => Object.keys(profiles), [profiles]);
-
   const tasksByState = useMemo(() => {
     const grouped: Record<string, Task[]> = {
       [GridState.PROFILE_ASSIGNMENT]: [],
@@ -110,8 +108,8 @@ function AppContent() {
     return grouped;
   }, [tasks]);
 
-  const handleAssignProfile = (taskId: number, profileKey: string, skipCopilot: boolean, model: string) => {
-    assignTaskProfileMutation.mutate({ taskId, profileKey, skipCopilot, model });
+  const handleAssignProfile = (taskId: number, profileKey: string, skipCopilot: boolean, model: string, validateFe: boolean) => {
+    assignTaskProfileMutation.mutate({ taskId, profileKey, skipCopilot, model, validateFe });
   };
 
   const handleMarkNonHitl = (taskId: number) => {
@@ -127,7 +125,7 @@ function AppContent() {
     <>
       <ProfileAssignmentGrid
         tasks={tasksByState[GridState.PROFILE_ASSIGNMENT]}
-        profiles={profileKeys}
+        profiles={profiles}
         onAssignProfile={handleAssignProfile}
         onMarkNonHitl={handleMarkNonHitl}
       />

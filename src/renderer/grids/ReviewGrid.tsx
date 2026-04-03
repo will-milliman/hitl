@@ -1,6 +1,8 @@
 import { createColumnHelper } from '@tanstack/react-table';
 import React, { useMemo } from 'react';
+import styled from 'styled-components';
 
+import { GridState } from '../../shared/constants';
 import type { ProfileMap, Task } from '../../shared/types';
 import { Grid } from '../components/Grid';
 import {
@@ -16,6 +18,29 @@ import { trpc } from '../trpc/client';
 
 const columnHelper = createColumnHelper<Task>();
 
+const GridButton = styled.button<{ $color: string }>`
+  background: ${({ $color }) => $color};
+  color: ${({ theme }) => theme.colors.base};
+  border: none;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: ${({ theme }) => theme.fonts.sans};
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    opacity 0.15s;
+
+  &:hover {
+    opacity: 0.85;
+  }
+
+  &:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+`;
+
 interface ReviewGridProps {
   tasks: Task[];
   profiles: ProfileMap;
@@ -28,6 +53,7 @@ export function ReviewGrid({ tasks, profiles }: ReviewGridProps) {
   const openSession = trpc.openSession.useMutation();
   const createVirtualDesktop = trpc.createVirtualDesktop.useMutation();
   const closeVirtualDesktop = trpc.closeVirtualDesktop.useMutation();
+  const startFixSession = trpc.startFixSession.useMutation();
 
   // Track which task IDs have an open virtual desktop
   const [openDesktops, setOpenDesktops] = React.useState<Set<number>>(() => new Set());
@@ -60,11 +86,16 @@ export function ReviewGrid({ tasks, profiles }: ReviewGridProps) {
           const sessionId = info.getValue();
           const worktreePath = info.row.original.worktreePath;
           const disabled = info.row.original.disabled;
-          if (!sessionId && disabled) {
+          const state = info.row.original.state;
+          // In PR_REVIEW, disabled means the PR is not ready to merge —
+          // it does NOT mean a copilot session is active. Only treat
+          // disabled as "session active" in TASK_EXECUTION state.
+          const sessionActive = disabled && state !== GridState.PR_REVIEW;
+          if (!sessionId && sessionActive) {
             return <ActivityIndicator tooltip="Starting session..." />;
           }
           if (!sessionId) return <Placeholder />;
-          if (disabled) {
+          if (sessionActive) {
             return (
               <ActionLink
                 onClick={() => {
@@ -197,8 +228,40 @@ export function ReviewGrid({ tasks, profiles }: ReviewGridProps) {
           return <ExternalLink href={prUrl}>{prUrl.split('/').pop()}</ExternalLink>;
         },
       }),
+      columnHelper.display({
+        id: 'fix',
+        header: '',
+        meta: { fixedWidth: 60 },
+        cell: (info) => {
+          const row = info.row.original;
+          // Show Fix button only when PR is not ready (disabled) and no session is running
+          if (!row.disabled || !row.worktreePath || !row.prUrl) return null;
+          // If a session is actively running (disabled + sessionId), don't show Fix
+          if (row.sessionId) return null;
+          return (
+            <GridButton
+              $color={theme.colors.yellow}
+              onClick={() => startFixSession.mutate({ taskId: row.id })}
+              disabled={startFixSession.isPending}
+              title="Start a copilot session to fix PR issues (failing checks, unresolved comments)"
+            >
+              Fix
+            </GridButton>
+          );
+        },
+      }),
     ],
-    [openVSCode, openTerminal, openExternal, openSession, createVirtualDesktop, closeVirtualDesktop, openDesktops, profiles],
+    [
+      openVSCode,
+      openTerminal,
+      openExternal,
+      openSession,
+      createVirtualDesktop,
+      closeVirtualDesktop,
+      startFixSession,
+      openDesktops,
+      profiles,
+    ],
   );
 
   return (
