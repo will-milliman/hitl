@@ -12,6 +12,11 @@
  *
  * - SESSION_ACTIVE (postToolUse) → agent is working → disabled = true
  * - SESSION_END (sessionEnd) → session finished → disabled = false (awaiting human)
+ *
+ * Idle detection:
+ * When a SESSION_ACTIVE signal is received, an idle timer starts. If no new
+ * SESSION_ACTIVE signal arrives within IDLE_TIMEOUT_MS, the session is presumed
+ * idle (copilot is waiting for user input) and disabled is set to false.
  */
 import { existsSync, mkdirSync, watch } from 'fs';
 
@@ -25,8 +30,19 @@ const watchers = new Map<string, ReturnType<typeof watch>>();
 /** Debounce timers for signal processing */
 const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+/** Idle timers — fire when no SESSION_ACTIVE signal arrives within the timeout */
+const idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
 /** Debounce interval for processing signals (ms) */
 const DEBOUNCE_MS = 1_000;
+
+/**
+ * How long to wait after the last SESSION_ACTIVE signal before marking
+ * the session as idle. Copilot typically fires postToolUse every few
+ * seconds while actively working, so 90s of silence is a strong signal
+ * that it's waiting for user input.
+ */
+const IDLE_TIMEOUT_MS = 90_000;
 
 /**
  * Starts watching a worktree's signal directory for changes.
@@ -92,6 +108,13 @@ export function unwatchSignals(worktreePath: string): void {
       debounceTimers.delete(key);
     }
   }
+
+  // Clear idle timer
+  const idleTimer = idleTimers.get(worktreePath);
+  if (idleTimer) {
+    clearTimeout(idleTimer);
+    idleTimers.delete(worktreePath);
+  }
 }
 
 /**
@@ -121,6 +144,9 @@ async function processSignal(worktreePath: string, taskId: number): Promise<void
         where: { id: taskId },
         data: { disabled: true },
       });
+      // Reset idle timer — if no further activity within the timeout,
+      // mark the session as idle (copilot is waiting for user input)
+      resetIdleTimer(worktreePath, taskId);
       break;
 
     case SIGNAL_FILES.SESSION_END:
@@ -146,6 +172,37 @@ async function processSignal(worktreePath: string, taskId: number): Promise<void
     default:
       console.log(`[watcher] Unknown signal: ${signal.signal}`);
   }
+}
+
+/**
+ * Resets the idle timer for a worktree. Called each time a SESSION_ACTIVE
+ * signal is received. When the timer fires (no new activity within the
+ * timeout), the task is marked as not-disabled (idle).
+ */
+function resetIdleTimer(worktreePath: string, taskId: number): void {
+  // Clear existing timer
+  const existing = idleTimers.get(worktreePath);
+  if (existing) clearTimeout(existing);
+
+  idleTimers.set(
+    worktreePath,
+    setTimeout(async () => {
+      idleTimers.delete(worktreePath);
+      // Only mark idle if we're still watching (session hasn't ended)
+      if (!watchers.has(worktreePath)) return;
+
+      console.log(`[watcher] Idle timeout for task #${taskId} — marking as idle`);
+      try {
+        const db = getDb();
+        await db.task.update({
+          where: { id: taskId },
+          data: { disabled: false },
+        });
+      } catch (err) {
+        console.error(`[watcher] Failed to mark task #${taskId} as idle:`, err);
+      }
+    }, IDLE_TIMEOUT_MS),
+  );
 }
 
 /**

@@ -37,6 +37,7 @@ function runSetupCommand(worktreePath: string, setup: { cwd: string; command: st
       shell: true,
       detached: true,
       stdio: 'ignore',
+      windowsHide: true,
     });
     child.unref();
   } catch (err) {

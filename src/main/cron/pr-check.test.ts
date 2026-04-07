@@ -32,6 +32,7 @@ vi.mock('../logger', () => ({
 const mockDb = {
   task: {
     findMany: vi.fn().mockResolvedValue([]),
+    findUnique: vi.fn().mockResolvedValue(null),
     update: vi.fn(),
   },
 };
@@ -363,7 +364,7 @@ describe('runPrCheckStep', () => {
       // Verify worktree was parked (DB fields cleared)
       expect(mockDb.task.update).toHaveBeenCalledWith({
         where: { id: 1001 },
-        data: { worktreePath: null, sessionId: null },
+        data: { worktreePath: null, sessionId: null, desktopOpen: false, desktopName: null },
       });
 
       // Verify branch was detached before parking
@@ -374,8 +375,13 @@ describe('runPrCheckStep', () => {
         expect.any(Function),
       );
 
-      // Verify virtual desktop close was attempted (PowerShell exec)
-      expect(exec).toHaveBeenCalledWith(expect.stringContaining('Task #1001'), expect.any(Object), expect.any(Function));
+      // Verify virtual desktop close was attempted (PowerShell execFile)
+      expect(execFile).toHaveBeenCalledWith(
+        'powershell',
+        expect.arrayContaining([expect.stringContaining('Task #1001')]),
+        expect.any(Object),
+        expect.any(Function),
+      );
     });
 
     it('does not change state when PR is still open', async () => {
@@ -435,7 +441,7 @@ describe('runPrCheckStep', () => {
       // Verify worktree was parked (DB fields cleared)
       expect(mockDb.task.update).toHaveBeenCalledWith({
         where: { id: 1001 },
-        data: { worktreePath: null, sessionId: null },
+        data: { worktreePath: null, sessionId: null, desktopOpen: false, desktopName: null },
       });
 
       // Verify branch was detached before parking

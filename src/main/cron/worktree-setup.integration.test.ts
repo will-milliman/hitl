@@ -385,6 +385,7 @@ describe('setupTaskWorktrees (integration)', () => {
       shell: true,
       detached: true,
       stdio: 'ignore',
+      windowsHide: true,
     });
   });
 

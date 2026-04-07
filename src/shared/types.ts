@@ -20,6 +20,8 @@ export interface Task {
   prMerged: boolean;
   azureUrl: string;
   disabled: boolean;
+  desktopOpen: boolean;
+  desktopName: string | null;
   skipCopilot: boolean;
   validateFe: boolean;
   prUpdated: boolean;

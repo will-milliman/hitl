@@ -20,17 +20,16 @@ const columnHelper = createColumnHelper<Task>();
 interface TaskExecutionGridProps {
   tasks: Task[];
   profiles: ProfileMap;
-  openDesktops: Set<number>;
-  setOpenDesktops: React.Dispatch<React.SetStateAction<Set<number>>>;
 }
 
-export function TaskExecutionGrid({ tasks, profiles, openDesktops, setOpenDesktops }: TaskExecutionGridProps) {
+export function TaskExecutionGrid({ tasks, profiles }: TaskExecutionGridProps) {
   const utils = trpc.useContext();
   const openVSCode = trpc.openInVSCode.useMutation();
   const openTerminal = trpc.openInTerminal.useMutation();
   const openExternal = trpc.openExternal.useMutation();
-  const openSession = trpc.openSession.useMutation();
-  const startCopilotSession = trpc.startCopilotSession.useMutation();
+  const openExternalBatch = trpc.openExternalBatch.useMutation();
+  const openSession = trpc.openSession.useMutation({ onSuccess: () => utils.tasks.invalidate() });
+  const startCopilotSession = trpc.startCopilotSession.useMutation({ onSuccess: () => utils.tasks.invalidate() });
   const createVirtualDesktop = trpc.createVirtualDesktop.useMutation();
   const closeVirtualDesktop = trpc.closeVirtualDesktop.useMutation();
   const resetTask = trpc.resetTask.useMutation({ onSuccess: () => utils.tasks.invalidate() });
@@ -87,7 +86,7 @@ export function TaskExecutionGrid({ tasks, profiles, openDesktops, setOpenDeskto
               <ActionLink
                 onClick={() => {
                   if (worktreePath) {
-                    openSession.mutate({ sessionId, cwd: worktreePath });
+                    openSession.mutate({ sessionId, cwd: worktreePath, taskId });
                   }
                 }}
                 title={`Copilot session ${sessionId} is active — click to open in terminal`}
@@ -100,7 +99,7 @@ export function TaskExecutionGrid({ tasks, profiles, openDesktops, setOpenDeskto
             <ActionLink
               onClick={() => {
                 if (worktreePath) {
-                  openSession.mutate({ sessionId, cwd: worktreePath });
+                  openSession.mutate({ sessionId, cwd: worktreePath, taskId });
                 }
               }}
               title={`Open Copilot session ${sessionId} in terminal`}
@@ -116,11 +115,21 @@ export function TaskExecutionGrid({ tasks, profiles, openDesktops, setOpenDeskto
         cell: (info) => {
           const path = info.getValue();
           const profileKey = info.row.original.profileKey;
-          const workspace = profileKey ? profiles[profileKey]?.workspace : undefined;
+          const profile = profileKey ? profiles[profileKey] : undefined;
+          const workspace = profile?.workspace;
           if (!path) return <Placeholder />;
+
+          // If a workspace file is configured, show just the filename (e.g. "foo.code-workspace").
+          // Otherwise, show the repo name derived from the profile's repoPath.
+          const label = workspace
+            ? workspace.split(/[\\/]/).pop()
+            : profile?.repoPath
+              ? profile.repoPath.split(/[\\/]/).pop()
+              : path.split(/[\\/]/).pop();
+
           return (
             <ActionLink onClick={() => openVSCode.mutate({ path, workspace })} title={`Open ${workspace ?? path} in VS Code`}>
-              {(workspace ?? path).split('\\').pop()}
+              {label}
             </ActionLink>
           );
         },
@@ -133,24 +142,22 @@ export function TaskExecutionGrid({ tasks, profiles, openDesktops, setOpenDeskto
           const row = info.row.original;
           if (!row.worktreePath) return <Placeholder />;
           const workspace = row.profileKey ? profiles[row.profileKey]?.workspace : undefined;
-          const isOpen = openDesktops.has(row.id);
+          const isOpen = row.desktopOpen;
 
           if (isOpen) {
+            const isClosing = closeVirtualDesktop.isPending && closeVirtualDesktop.variables?.taskId === row.id;
             return (
               <ActionLink
                 onClick={() => {
-                  setOpenDesktops((prev) => {
-                    const next = new Set(prev);
-                    next.delete(row.id);
-                    return next;
-                  });
+                  if (isClosing) return;
                   closeVirtualDesktop
-                    .mutateAsync({ name: `Task #${row.id}` })
+                    .mutateAsync({ taskId: row.id })
+                    .then(() => utils.tasks.invalidate())
                     .catch((e) => console.error('[grid] closeVirtualDesktop failed:', e));
                 }}
                 title="Close all windows and remove this virtual desktop"
               >
-                Close
+                {isClosing ? 'Closing...' : 'Close'}
               </ActionLink>
             );
           }
@@ -160,24 +167,31 @@ export function TaskExecutionGrid({ tasks, profiles, openDesktops, setOpenDeskto
               onClick={async () => {
                 try {
                   await createVirtualDesktop.mutateAsync({
-                    name: `Task #${row.id}`,
+                    taskId: row.id,
+                    worktreePath: row.worktreePath!,
                   });
                 } catch (e) {
                   console.error('[grid] createVirtualDesktop failed:', e);
                 }
-                setOpenDesktops((prev) => new Set(prev).add(row.id));
+                utils.tasks.invalidate();
                 const opens: Promise<unknown>[] = [
                   openVSCode
                     .mutateAsync({ path: row.worktreePath!, workspace })
                     .catch((e) => console.error('[grid] openVSCode failed:', e)),
-                  openExternal.mutateAsync({ url: row.azureUrl }).catch((e) => console.error('[grid] openExternal failed:', e)),
                 ];
+                // Batch Azure URL and PR URL into a single browser window with tabs
+                const urls = [row.azureUrl];
+                if (row.prUrl) urls.push(row.prUrl);
+                opens.push(
+                  openExternalBatch.mutateAsync({ urls }).catch((e) => console.error('[grid] openExternalBatch failed:', e)),
+                );
                 if (row.sessionId) {
                   opens.push(
                     openSession
                       .mutateAsync({
                         sessionId: row.sessionId,
                         cwd: row.worktreePath!,
+                        taskId: row.id,
                       })
                       .catch((e) => console.error('[grid] openSession failed:', e)),
                   );
@@ -193,11 +207,6 @@ export function TaskExecutionGrid({ tasks, profiles, openDesktops, setOpenDeskto
                     openTerminal
                       .mutateAsync({ path: row.worktreePath! })
                       .catch((e) => console.error('[grid] openTerminal failed:', e)),
-                  );
-                }
-                if (row.prUrl) {
-                  opens.push(
-                    openExternal.mutateAsync({ url: row.prUrl }).catch((e) => console.error('[grid] openExternal failed:', e)),
                   );
                 }
                 await Promise.all(opens);
@@ -229,6 +238,7 @@ export function TaskExecutionGrid({ tasks, profiles, openDesktops, setOpenDeskto
               options={[
                 {
                   label: 'Reset',
+                  tooltip: 'Clean up the current session, worktree, and PR, then move this task back to Profile Assignment',
                   onClick: () => resetTask.mutate({ taskId: row.id }),
                 },
               ]}
@@ -241,13 +251,13 @@ export function TaskExecutionGrid({ tasks, profiles, openDesktops, setOpenDeskto
       openVSCode,
       openTerminal,
       openExternal,
+      openExternalBatch,
       openSession,
       startCopilotSession,
       createVirtualDesktop,
       closeVirtualDesktop,
       resetTask,
-      openDesktops,
-      setOpenDesktops,
+      utils,
       profiles,
     ],
   );

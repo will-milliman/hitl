@@ -335,32 +335,48 @@ async function checkDraftToReady(): Promise<void> {
  * do not prevent the task from completing.
  */
 async function closeVirtualDesktop(taskId: number): Promise<void> {
-  const desktopName = `Task #${taskId}`;
+  // Look up the stored desktop name; fall back to legacy format
+  const db = getDb();
+  const task = await db.task.findUnique({ where: { id: taskId }, select: { desktopName: true } });
+  const desktopName = task?.desktopName ?? `Task #${taskId}`;
   const safeName = desktopName.replace(/'/g, "''");
 
-  // PowerShell script that:
-  // 1. Defines a Win32 helper to send WM_CLOSE to window handles
-  // 2. Imports the VirtualDesktop module
-  // 3. Finds the desktop by name
-  // 4. Gets all window handles on that desktop and closes them
-  // 5. Waits briefly for windows to close, then removes the desktop
+  // PowerShell script passed via execFile (bypasses cmd.exe, no double-quote issues).
+  // 1. Defines Win32 helpers to close windows and look up their processes
+  // 2. Finds the desktop by name
+  // 3. Sends WM_CLOSE to all windows, waits, then force-kills remaining processes
+  // 4. Removes the desktop
   const ps1 = [
-    `Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class Win32Close { [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint Msg, int wParam, int lParam); }'`,
+    `Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class Win32Close { [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint Msg, int wParam, int lParam); [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId); }'`,
     `Import-Module VirtualDesktop`,
     `$desktop = Get-Desktop | Where-Object { $_.Name -eq '${safeName}' }`,
     `if ($desktop) {`,
-    `  $handles = $desktop | Get-DesktopWindow`,
+    `  $handles = @($desktop | Get-DesktopWindow)`,
+    `  $pids = @()`,
     `  foreach ($h in $handles) {`,
-    `    try { [Win32Close]::PostMessage($h, 0x0010, 0, 0) } catch { }`,
+    `    try {`,
+    `      $pid = 0`,
+    `      [Win32Close]::GetWindowThreadProcessId($h, [ref]$pid) | Out-Null`,
+    `      if ($pid -gt 0) { $pids += $pid }`,
+    `      [Win32Close]::PostMessage($h, 0x0010, 0, 0) | Out-Null`,
+    `    } catch { }`,
     `  }`,
-    `  Start-Sleep -Milliseconds 1000`,
-    `  $desktop | Remove-Desktop`,
+    `  Start-Sleep -Milliseconds 2000`,
+    `  $pids = $pids | Sort-Object -Unique`,
+    `  foreach ($p in $pids) {`,
+    `    try { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue } catch { }`,
+    `  }`,
+    `  Start-Sleep -Milliseconds 500`,
+    `  try { $desktop | Remove-Desktop -ErrorAction SilentlyContinue } catch { }`,
     `}`,
   ].join('; ');
 
   logger.info(`Closing virtual desktop "${desktopName}"`);
 
-  await execAsync(`powershell -NoProfile -ExecutionPolicy Bypass -Command "${ps1}"`, { windowsHide: true, timeout: 15_000 });
+  await execFileAsync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps1], {
+    windowsHide: true,
+    timeout: 15_000,
+  });
 }
 
 /**
@@ -400,7 +416,7 @@ export async function cleanupCompletedTask(taskId: number, worktreePath: string 
   try {
     await db.task.update({
       where: { id: taskId },
-      data: { worktreePath: null, sessionId: null },
+      data: { worktreePath: null, sessionId: null, desktopOpen: false, desktopName: null },
     });
     logger.info(`Task #${taskId}: worktree parked (detached from task)`);
   } catch (err) {

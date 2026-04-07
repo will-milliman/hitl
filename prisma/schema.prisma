@@ -31,6 +31,8 @@ model Task {
   prMerged     Boolean   @default(false)        // Whether the task PR has been merged
   azureUrl     String                           // Azure DevOps work item URL
   disabled     Boolean   @default(false)        // Whether item is disabled in the grid
+  desktopOpen  Boolean   @default(false)        // Whether a virtual desktop is open for this task
+  desktopName  String?                          // Name of the virtual desktop (branch name)
   skipCopilot  Boolean   @default(false)        // Skip automatic copilot session (manual mode)
   validateFe   Boolean   @default(false)        // Run Playwright FE validation before PR
   prUpdated    Boolean   @default(false)        // Flag: GitHub webhook indicated PR update

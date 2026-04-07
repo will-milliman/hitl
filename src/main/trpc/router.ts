@@ -1,5 +1,5 @@
 import { initTRPC } from '@trpc/server';
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 import { BrowserWindow } from 'electron';
 import { join } from 'path';
 import { z } from 'zod';
@@ -33,7 +33,7 @@ import { getLogDir, getRecentLogs, getSessionLogs, listLogFiles, readLogFile } f
 import type { LogLevel } from '../logger';
 import { loadProfiles, loadSettings, updateSettings } from '../settings';
 import { checkForUpdates, getUpdateStatus, installUpdate } from '../updater';
-import { listWorktrees, pruneWorktrees } from '../worktree';
+import { getCurrentBranch, listWorktrees, pruneWorktrees } from '../worktree';
 
 const t = initTRPC.create();
 
@@ -69,7 +69,7 @@ export const appRouter = t.router({
       return db.task.findMany({
         where,
         include: { story: true },
-        orderBy: { updatedAt: 'desc' },
+        orderBy: { createdAt: 'desc' },
       });
     }),
 
@@ -167,6 +167,7 @@ export const appRouter = t.router({
       data: {
         state: GridState.PROFILE_ASSIGNMENT,
         disabled: false,
+        desktopOpen: false,
         profileKey: null,
         worktreePath: null,
         sessionId: null,
@@ -364,31 +365,66 @@ export const appRouter = t.router({
     });
   }),
 
+  /** Open multiple URLs in a single Edge browser window as tabs */
+  openExternalBatch: t.procedure.input(z.object({ urls: z.array(z.string()).min(1) })).mutation(async ({ input }) => {
+    return new Promise<{ success: boolean; error?: string }>((resolve) => {
+      const quoted = input.urls.map((u) => `"${u}"`).join(' ');
+      exec(`start msedge --new-window ${quoted}`, { windowsHide: true }, (err) => {
+        if (err) {
+          console.error('[router] Failed to open URLs:', err.message);
+          resolve({ success: false, error: err.message });
+        } else {
+          resolve({ success: true });
+        }
+      });
+    });
+  }),
+
   /** Create a new Windows 11 virtual desktop via PowerShell VirtualDesktop module */
   createVirtualDesktop: t.procedure
     .input(
       z
         .object({
           name: z.string().optional(),
+          taskId: z.number().optional(),
+          worktreePath: z.string().optional(),
         })
         .optional(),
     )
     .mutation(async ({ input }) => {
+      // Resolve desktop name: prefer branch name from worktree, fall back to provided name
+      let desktopName = input?.name;
+      if (input?.worktreePath) {
+        const branch = await getCurrentBranch(input.worktreePath);
+        if (branch) desktopName = branch;
+      }
+
       return new Promise<{ success: boolean; error?: string }>((resolve) => {
-        const name = input?.name;
         let ps1 = 'Import-Module VirtualDesktop; ';
-        if (name) {
-          const safeName = name.replace(/'/g, "''");
+        if (desktopName) {
+          const safeName = desktopName.replace(/'/g, "''");
           ps1 += `New-Desktop | Set-DesktopName -Name '${safeName}' -PassThru | Switch-Desktop`;
         } else {
           ps1 += 'New-Desktop | Switch-Desktop';
         }
 
-        exec(`powershell -NoProfile -ExecutionPolicy Bypass -Command "${ps1}"`, { windowsHide: true }, (err) => {
+        exec(`powershell -NoProfile -ExecutionPolicy Bypass -Command "${ps1}"`, { windowsHide: true }, async (err) => {
           if (err) {
             console.error('[router] Failed to create virtual desktop:', err.message);
             resolve({ success: false, error: err.message });
           } else {
+            // Persist desktop-open state and name in the database
+            if (input?.taskId) {
+              try {
+                const db = getDb();
+                await db.task.update({
+                  where: { id: input.taskId },
+                  data: { desktopOpen: true, desktopName: desktopName ?? null },
+                });
+              } catch (e) {
+                console.error('[router] Failed to persist desktopOpen:', e);
+              }
+            }
             setTimeout(() => resolve({ success: true }), 1000);
           }
         });
@@ -399,34 +435,84 @@ export const appRouter = t.router({
   closeVirtualDesktop: t.procedure
     .input(
       z.object({
-        name: z.string(),
+        name: z.string().optional(),
+        taskId: z.number().optional(),
       }),
     )
     .mutation(async ({ input }) => {
-      const safeName = input.name.replace(/'/g, "''");
+      // Resolve desktop name: prefer DB-stored name, fall back to provided name
+      let desktopName = input.name;
+      if (input.taskId) {
+        try {
+          const db = getDb();
+          const task = await db.task.findUnique({ where: { id: input.taskId }, select: { desktopName: true } });
+          if (task?.desktopName) desktopName = task.desktopName;
+        } catch (e) {
+          console.error('[router] Failed to look up desktopName:', e);
+        }
+      }
+
+      if (!desktopName) {
+        return { success: false, error: 'No desktop name provided or found' };
+      }
+
+      const safeName = desktopName.replace(/'/g, "''");
+      // PowerShell script passed via execFile (bypasses cmd.exe, no double-quote issues).
+      // 1. Defines Win32 helpers to close windows and look up their processes
+      // 2. Finds the desktop by name
+      // 3. Sends WM_CLOSE to all windows, waits, then force-kills remaining processes
+      // 4. Removes the desktop
       const ps1 = [
-        `Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class Win32Close { [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint Msg, int wParam, int lParam); }'`,
+        `Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class Win32Close { [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint Msg, int wParam, int lParam); [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId); }'`,
         `Import-Module VirtualDesktop`,
         `$desktop = Get-Desktop | Where-Object { $_.Name -eq '${safeName}' }`,
         `if ($desktop) {`,
-        `  $handles = $desktop | Get-DesktopWindow`,
+        `  $handles = @($desktop | Get-DesktopWindow)`,
+        `  $pids = @()`,
         `  foreach ($h in $handles) {`,
-        `    try { [Win32Close]::PostMessage($h, 0x0010, 0, 0) } catch { }`,
+        `    try {`,
+        `      $pid = 0`,
+        `      [Win32Close]::GetWindowThreadProcessId($h, [ref]$pid) | Out-Null`,
+        `      if ($pid -gt 0) { $pids += $pid }`,
+        `      [Win32Close]::PostMessage($h, 0x0010, 0, 0) | Out-Null`,
+        `    } catch { }`,
         `  }`,
-        `  Start-Sleep -Milliseconds 1000`,
-        `  $desktop | Remove-Desktop`,
+        `  Start-Sleep -Milliseconds 2000`,
+        `  $pids = $pids | Sort-Object -Unique`,
+        `  foreach ($p in $pids) {`,
+        `    try { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue } catch { }`,
+        `  }`,
+        `  Start-Sleep -Milliseconds 500`,
+        `  try { $desktop | Remove-Desktop -ErrorAction SilentlyContinue } catch { }`,
         `}`,
       ].join('; ');
 
       return new Promise<{ success: boolean; error?: string }>((resolve) => {
-        exec(`powershell -NoProfile -ExecutionPolicy Bypass -Command "${ps1}"`, { windowsHide: true, timeout: 15_000 }, (err) => {
-          if (err) {
-            console.error('[router] Failed to close virtual desktop:', err.message);
-            resolve({ success: false, error: err.message });
-          } else {
-            resolve({ success: true });
-          }
-        });
+        execFile(
+          'powershell',
+          ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps1],
+          { windowsHide: true, timeout: 15_000 },
+          async (err) => {
+            if (err) {
+              console.error('[router] Failed to close virtual desktop:', err.message);
+              resolve({ success: false, error: err.message });
+            } else {
+              // Persist desktop-closed state in the database
+              if (input.taskId) {
+                try {
+                  const db = getDb();
+                  await db.task.update({
+                    where: { id: input.taskId },
+                    data: { desktopOpen: false, desktopName: null },
+                  });
+                } catch (e) {
+                  console.error('[router] Failed to persist desktopOpen:', e);
+                }
+              }
+              resolve({ success: true });
+            }
+          },
+        );
       });
     }),
 
@@ -469,10 +555,25 @@ export const appRouter = t.router({
       z.object({
         sessionId: z.string(),
         cwd: z.string(),
+        taskId: z.number(),
       }),
     )
     .mutation(async ({ input }) => {
-      return openSessionInTerminal(input.sessionId, input.cwd);
+      const result = await openSessionInTerminal(input.sessionId, input.cwd);
+      if (result.success) {
+        // Clear stale signals so the watcher picks up fresh activity
+        clearSignals(input.cwd);
+        // Re-establish the signal watcher so we detect when the user
+        // resumes prompting (postToolUse → session-active signal)
+        watchSignals(input.cwd, 'task', input.taskId);
+        // Mark as active immediately — the user is interacting
+        const db = getDb();
+        await db.task.update({
+          where: { id: input.taskId },
+          data: { disabled: true },
+        });
+      }
+      return result;
     }),
 
   /** Start a fresh interactive copilot session in Windows Terminal (manual mode) */
@@ -486,12 +587,15 @@ export const appRouter = t.router({
     .mutation(async ({ input }) => {
       const result = await startInteractiveSession(input.cwd);
       if (result.success && result.sessionId) {
-        // Save session ID to database
+        // Save session ID to database and mark as active
         const db = getDb();
         await db.task.update({
           where: { id: input.taskId },
-          data: { sessionId: result.sessionId },
+          data: { sessionId: result.sessionId, disabled: true },
         });
+        // Set up signal watcher so hooks update the disabled state
+        clearSignals(input.cwd);
+        watchSignals(input.cwd, 'task', input.taskId);
       }
       return result;
     }),

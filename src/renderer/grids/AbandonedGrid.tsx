@@ -14,7 +14,10 @@ interface AbandonedGridProps {
 }
 
 export function AbandonedGrid({ tasks }: AbandonedGridProps) {
-  const openSession = trpc.openSession.useMutation();
+  const utils = trpc.useUtils();
+  const openSession = trpc.openSession.useMutation({
+    onSuccess: () => utils.tasks.invalidate(),
+  });
 
   const columns = useMemo(
     () => [
@@ -43,12 +46,13 @@ export function AbandonedGrid({ tasks }: AbandonedGridProps) {
         cell: (info) => {
           const sessionId = info.getValue();
           const worktreePath = info.row.original.worktreePath;
+          const taskId = info.row.original.id;
           if (!sessionId) return <Placeholder />;
           return (
             <ActionLink
               onClick={() => {
                 if (worktreePath) {
-                  openSession.mutate({ sessionId, cwd: worktreePath });
+                  openSession.mutate({ sessionId, cwd: worktreePath, taskId });
                 }
               }}
               title={`Open session ${sessionId} in terminal`}

@@ -93,7 +93,8 @@ const Th = styled.th`
 `;
 
 const Tr = styled.tr<{ $disabled?: boolean }>`
-  opacity: ${({ $disabled }) => ($disabled ? 0.45 : 1)};
+  --row-opacity: ${({ $disabled }) => ($disabled ? 0.45 : 1)};
+  opacity: var(--row-opacity);
 
   &:hover {
     background: ${({ theme }) => theme.colors.surface0};

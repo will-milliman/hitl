@@ -54,7 +54,7 @@ export function CompletedGrid({ tasks }: CompletedGridProps) {
       }),
       columnHelper.accessor('completedAt', {
         header: 'Completed',
-        meta: { shrink: true },
+        meta: { fixedWidth: 128 },
         cell: (info) => {
           const completedAt = info.getValue();
           if (!completedAt) return <Placeholder />;
@@ -63,7 +63,7 @@ export function CompletedGrid({ tasks }: CompletedGridProps) {
       }),
       columnHelper.accessor('prUrl', {
         header: 'Pull Request',
-        meta: { shrink: true, minWidth: 120 },
+        meta: { shrink: true, minWidth: 138 },
         cell: (info) => {
           const prUrl = info.getValue();
           if (!prUrl) return <Placeholder />;

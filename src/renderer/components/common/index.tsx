@@ -476,6 +476,8 @@ export function ActivityIndicator({ tooltip, color }: ActivityIndicatorProps) {
 const MenuWrapper = styled.div`
   position: relative;
   display: inline-flex;
+  /* Counteract row-level opacity on disabled rows so menu stays readable */
+  opacity: calc(1 / var(--row-opacity, 1));
 `;
 
 const MenuButton = styled.button`
@@ -533,6 +535,7 @@ const MenuItem = styled.button`
 export interface OverflowMenuOption {
   label: string;
   onClick: () => void;
+  tooltip?: string;
 }
 
 interface OverflowMenuProps {
@@ -568,6 +571,7 @@ export function OverflowMenu({ options }: OverflowMenuProps) {
           {options.map((option) => (
             <MenuItem
               key={option.label}
+              title={option.tooltip}
               onClick={() => {
                 setOpen(false);
                 option.onClick();

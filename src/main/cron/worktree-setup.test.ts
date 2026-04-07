@@ -293,6 +293,7 @@ describe('setupTaskWorktrees', () => {
       shell: true,
       detached: true,
       stdio: 'ignore',
+      windowsHide: true,
     });
   });
 });
