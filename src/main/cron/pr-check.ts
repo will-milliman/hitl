@@ -23,11 +23,9 @@
  * All GitHub operations use the `gh` CLI (authenticated via `gh auth login`).
  */
 import { exec, execFile } from 'child_process';
-import { existsSync, readFileSync } from 'fs';
 import { promisify } from 'util';
 
 import { GridState } from '../../shared/constants';
-import { getPrSummaryPath } from '../copilot';
 import { getDb } from '../db';
 import { createPullRequest, findPullRequest, getPullRequestByUrl, isGhAuthenticated, isPrReadyToMerge } from '../github';
 import { createLogger } from '../logger';
@@ -38,59 +36,6 @@ import { getCurrentBranch } from '../worktree';
 const logger = createLogger('pr-check');
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
-
-// ─── PR summary helpers ─────────────────────────────────
-
-interface PrSummary {
-  /** Title extracted from the first `# ` heading */
-  title: string;
-  /** Everything after the heading */
-  body: string;
-}
-
-/**
- * Reads the PR.md file that Copilot writes at the end of its session.
- *
- * Expected format:
- * ```
- * # <PR title>
- *
- * <markdown body>
- * ```
- *
- * Returns null if the file doesn't exist or can't be parsed.
- */
-function readPrSummary(worktreePath: string): PrSummary | null {
-  const summaryPath = getPrSummaryPath(worktreePath);
-
-  if (!existsSync(summaryPath)) {
-    logger.info('No PR.md found — Copilot did not write a PR summary');
-    return null;
-  }
-
-  try {
-    const content = readFileSync(summaryPath, 'utf-8').trim();
-    if (!content) return null;
-
-    // Extract title from first `# ` heading
-    const match = content.match(/^#\s+(.+)/m);
-    if (!match) {
-      logger.warn('PR.md has no heading — using entire content as body');
-      return null;
-    }
-
-    const title = match[1].trim();
-    // Body is everything after the heading line
-    const headingEnd = content.indexOf('\n', content.indexOf(match[0]));
-    const body = headingEnd >= 0 ? content.slice(headingEnd + 1).trim() : '';
-
-    return { title, body };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    logger.warn(`Failed to read PR.md: ${message}`);
-    return null;
-  }
-}
 
 /**
  * Gets the default branch for a task's profile.
@@ -171,19 +116,12 @@ async function createDraftPRs(): Promise<void> {
         logger.info(`PR already exists for task #${task.id}: ${existing.url}`);
         prUrl = existing.url;
       } else {
-        // Read the PR summary written by Copilot (PR.md)
-        const summary = readPrSummary(worktreePath);
-
-        const prTitle = summary?.title ?? `Task #${task.id}: ${task.title}`;
+        const prTitle = `Task #${task.id}: ${task.title}`;
         const storyContext = task.story ? `\n**Story**: #${task.story.id} — ${task.story.title}\n` : '';
 
         const bodyParts: string[] = [];
 
-        if (summary?.body) {
-          bodyParts.push(summary.body, '');
-        } else {
-          bodyParts.push(`Implements changes for Task #${task.id}.`, '');
-        }
+        bodyParts.push(`Implements changes for Task #${task.id}.`, '');
 
         if (storyContext) bodyParts.push(storyContext);
 

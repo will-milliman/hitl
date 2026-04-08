@@ -146,8 +146,8 @@ function AppContent() {
       <CopilotKickoffGrid tasks={tasksByState[GridState.COPILOT_KICKOFF]} />
       <TaskExecutionGrid tasks={tasksByState[GridState.TASK_EXECUTION]} profiles={profiles} />
       <ReviewGrid tasks={tasksByState[GridState.PR_REVIEW]} profiles={profiles} />
-      <ErrorGrid tasks={tasksByState[GridState.ERROR]} />
       <CompletedGrid tasks={tasksByState[GridState.COMPLETED]} />
+      <ErrorGrid tasks={tasksByState[GridState.ERROR]} />
       <BlockedGrid tasks={tasksByState[GridState.BLOCKED]} blockedStories={blockedStories} />
       <AbandonedGrid tasks={tasksByState[GridState.ABANDONED]} />
       <NonHitlGrid tasks={tasksByState[GridState.NON_HITL]} />

@@ -6,7 +6,6 @@
  * and external modules.
  */
 import { exec, execFile } from 'child_process';
-import { existsSync, readFileSync } from 'fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GridState } from '../../shared/constants';
@@ -68,16 +67,6 @@ vi.mock('../notifications', () => ({
   notifyTaskCompleted: vi.fn(),
 }));
 
-vi.mock('../copilot', () => ({
-  getPrSummaryPath: vi.fn((wt: string) => `${wt}/.hitl-data/PR.md`),
-  getScreenshotsDir: vi.fn((wt: string) => `${wt}/.hitl-data/screenshots`),
-}));
-
-vi.mock('fs', () => ({
-  existsSync: vi.fn().mockReturnValue(false),
-  readFileSync: vi.fn().mockReturnValue(''),
-}));
-
 // Mock child_process for pushBranch (execFile) and closeVirtualDesktop (exec)
 vi.mock('child_process', () => ({
   execFile: vi.fn((_cmd: string, _args: string[], _opts: unknown, cb: (...args: unknown[]) => void) => {
@@ -113,7 +102,6 @@ describe('runPrCheckStep', () => {
     // Reset defaults
     mockDb.task.findMany.mockResolvedValue([]);
     vi.mocked(isGhAuthenticated).mockResolvedValue(true);
-    vi.mocked(existsSync).mockReturnValue(false);
   });
 
   it('skips everything when gh CLI is not authenticated', async () => {
@@ -153,7 +141,7 @@ describe('runPrCheckStep', () => {
 
       await runPrCheckStep();
 
-      // Falls back to task title when no PR.md exists
+      // Uses task title for PR title
       expect(createPullRequest).toHaveBeenCalledWith(
         'C:/repos/test-wt',
         expect.objectContaining({
@@ -168,56 +156,6 @@ describe('runPrCheckStep', () => {
         where: { id: 1001 },
         data: { prUrl: 'https://github.com/org/repo/pull/201' },
       });
-    });
-
-    it('uses PR.md content for title and body when Copilot writes it', async () => {
-      const task = {
-        ...makeTask({
-          id: 1001,
-          state: GridState.TASK_EXECUTION,
-          profileKey: 'integrate',
-          worktreePath: 'C:/repos/test-wt',
-          sessionId: 'session-1',
-          prUrl: null,
-          disabled: false,
-        }),
-        story: null,
-      };
-
-      mockDb.task.findMany
-        .mockResolvedValueOnce([task])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([]);
-
-      vi.mocked(findPullRequest).mockResolvedValueOnce(null);
-      vi.mocked(createPullRequest).mockResolvedValueOnce(
-        makePullRequest({ number: 202, url: 'https://github.com/org/repo/pull/202', isDraft: true }),
-      );
-
-      // Simulate PR.md existing with content
-      vi.mocked(existsSync).mockReturnValue(true);
-      vi.mocked(readFileSync).mockReturnValue(
-        '# Add user authentication flow\n\n- Implemented login endpoint\n- Added session middleware\n',
-      );
-
-      await runPrCheckStep();
-
-      expect(createPullRequest).toHaveBeenCalledWith(
-        'C:/repos/test-wt',
-        expect.objectContaining({
-          title: 'Add user authentication flow',
-          body: expect.stringContaining('Implemented login endpoint'),
-          draft: true,
-        }),
-      );
-      // Should still include AB# link
-      expect(createPullRequest).toHaveBeenCalledWith(
-        'C:/repos/test-wt',
-        expect.objectContaining({
-          body: expect.stringContaining('AB#1001'),
-        }),
-      );
     });
 
     it('uses existing PR URL when PR already exists on GitHub', async () => {

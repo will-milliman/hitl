@@ -41,6 +41,7 @@ export interface TaskRecord {
   prMerged: boolean;
   azureUrl: string;
   disabled: boolean;
+  skipCopilot: boolean;
   prUpdated: boolean;
   completedAt: Date | null;
   errorMessage: string | null;
@@ -64,6 +65,7 @@ const TASK_DEFAULTS: TaskRecord = {
   prMerged: false,
   azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/91001',
   disabled: false,
+  skipCopilot: false,
   prUpdated: false,
   completedAt: null,
   errorMessage: null,

@@ -17,7 +17,7 @@
  */
 import { execFile } from 'child_process';
 import { existsSync, readdirSync, rmSync } from 'fs';
-import { basename, dirname, join, resolve } from 'path';
+import { basename, dirname, join, normalize, resolve } from 'path';
 import { promisify } from 'util';
 
 const execFileAsync = promisify(execFile);
@@ -91,7 +91,7 @@ export async function listWorktrees(repoPath: string): Promise<WorktreeEntry[]> 
   for (const line of stdout.split('\n')) {
     if (line.startsWith('worktree ')) {
       if (current.path) entries.push(current as WorktreeEntry);
-      current = { path: line.substring(9).trim(), branch: null, bare: false };
+      current = { path: normalize(line.substring(9).trim()), branch: null, bare: false };
     } else if (line.startsWith('HEAD ')) {
       current.head = line.substring(5).trim();
     } else if (line.startsWith('branch ')) {
@@ -158,7 +158,7 @@ export function getNextWorktreePath(repoPath: string): string {
  * lowercased and joined with a hyphen. Falls back to 'update' if the
  * title doesn't have enough useful words.
  */
-export function extractKeywords(title: string): string {
+export function extractKeywords(title: string, skip = 0): string {
   const stopWords = new Set([
     'the',
     'a',
@@ -236,9 +236,12 @@ export function extractKeywords(title: string): string {
     .split(/\s+/)
     .filter((w) => w.length > 1 && !stopWords.has(w));
 
-  if (words.length === 0) return 'update';
-  if (words.length === 1) return words[0];
-  return `${words[0]}-${words[1]}`;
+  // Apply the skip offset to select different keyword pairs
+  const available = words.slice(skip);
+
+  if (available.length === 0) return skip === 0 ? 'update' : '';
+  if (available.length === 1) return available[0];
+  return `${available[0]}-${available[1]}`;
 }
 
 /**
@@ -287,7 +290,28 @@ export async function getUniqueBranchName(
     return baseName; // If git fails, just use the base name
   }
 
-  // Branch exists — try with numeric suffixes
+  // Branch exists — try alternative keyword pairs from the title first.
+  // For a title with words [A, B, C, D], we already tried A-B (skip=0).
+  // Now try skip=1 (B-C), skip=2 (C-D), etc.
+  if (title) {
+    for (let skip = 1; skip <= 10; skip++) {
+      const altKeywords = extractKeywords(title, skip);
+      if (!altKeywords) break; // No more keyword combinations available
+      const candidate = `${type}/${workItemId}/${altKeywords}`;
+      if (candidate === baseName) continue; // Same as base, skip
+      try {
+        const { stdout } = await git(['branch', '--list', candidate], { cwd: repoPath });
+        if (!stdout.trim()) {
+          const { stdout: remoteOut } = await git(['branch', '-r', '--list', `origin/${candidate}`], { cwd: repoPath });
+          if (!remoteOut.trim()) return candidate;
+        }
+      } catch {
+        return candidate;
+      }
+    }
+  }
+
+  // All keyword combinations exhausted — fall back to numeric suffixes
   for (let i = 2; i <= 50; i++) {
     const candidate = `${baseName}-${i}`;
     try {
@@ -301,8 +325,8 @@ export async function getUniqueBranchName(
     }
   }
 
-  // Extremely unlikely fallback
-  return `${baseName}-${Date.now()}`;
+  // Last resort — short numeric suffix (no timestamp)
+  return `${baseName}-${Math.floor(Math.random() * 9000) + 1000}`;
 }
 
 /**
@@ -315,17 +339,21 @@ export async function getUniqueBranchName(
  */
 export async function findIdleWorktree(repoPath: string, assignedPaths: Set<string>): Promise<WorktreeEntry | null> {
   const worktrees = await listWorktrees(repoPath);
-  const worktreesDir = getWorktreesDir(repoPath);
+  const worktreesDir = normalize(getWorktreesDir(repoPath));
+
+  // Normalize assigned paths for reliable comparison (DB may store mixed separators)
+  const normalizedAssigned = new Set([...assignedPaths].map((p) => normalize(p)));
 
   const candidates: WorktreeEntry[] = [];
 
   for (const wt of worktrees) {
+    const wtPath = normalize(wt.path);
     // Skip the main worktree (the repo itself)
-    if (wt.path === resolve(repoPath)) continue;
+    if (wtPath === normalize(resolve(repoPath))) continue;
     // Skip worktrees not in our managed directory
-    if (!wt.path.startsWith(worktreesDir)) continue;
+    if (!wtPath.startsWith(worktreesDir)) continue;
     // Skip worktrees that are currently assigned
-    if (assignedPaths.has(wt.path)) continue;
+    if (normalizedAssigned.has(wtPath)) continue;
 
     candidates.push(wt);
   }

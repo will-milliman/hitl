@@ -380,11 +380,11 @@ describe('setupTaskWorktrees (integration)', () => {
     expect(task!.worktreePath).toBe('C:/repos/test-repo-worktrees/task-7040');
 
     // Verify setup command was spawned
-    expect(spawn).toHaveBeenCalledWith('npm install', [], {
+    expect(spawn).toHaveBeenCalledWith('cmd', ['/c', 'start', '/b', 'cmd', '/c', 'npm install'], {
       cwd: join('C:/repos/test-repo-worktrees/task-7040', 'src'),
-      shell: true,
-      detached: true,
+      detached: false,
       stdio: 'ignore',
+      shell: false,
       windowsHide: true,
     });
   });

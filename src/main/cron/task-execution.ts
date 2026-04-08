@@ -18,16 +18,7 @@
 import { existsSync } from 'fs';
 
 import { GridState } from '../../shared/constants';
-import {
-  SIGNAL_FILES,
-  ensureGlobalHooks,
-  getLogDir,
-  getPrSummaryPath,
-  isWatching,
-  readLatestSignal,
-  spawnSession,
-  watchSignals,
-} from '../copilot';
+import { SIGNAL_FILES, ensureGlobalHooks, getLogDir, isWatching, readLatestSignal, spawnSession, watchSignals } from '../copilot';
 import { getDb } from '../db';
 import { createLogger } from '../logger';
 
@@ -40,9 +31,9 @@ const logger = createLogger('task-exec');
  *
  * Instructs the agent to implement the task as described.
  */
-function buildTaskPrompt(taskId: number, taskTitle: string, storyTitle?: string, prSummaryPath?: string): string {
+function buildTaskPrompt(taskId: number, taskTitle: string, storyTitle?: string): string {
   const storyContext = storyTitle ? `\nParent Story: ${storyTitle}\n` : '';
-  let prompt = `You are implementing a development task.
+  const prompt = `You are implementing a development task.
 ${storyContext}
 Task #${taskId}: ${taskTitle}
 
@@ -52,32 +43,12 @@ Your goal is to implement this task completely. Please:
 2. Implement the changes described in this task.
 3. Ensure your changes follow the existing code style and patterns.
 4. Write or update tests if the project has a test suite.
-5. Commit your changes with a clear, descriptive commit message referencing Task #${taskId}.
 
-Do NOT create a pull request — that will be handled separately.
+IMPORTANT: Do NOT stage, commit, or push any changes. Do NOT create a pull request.
+Leave all your changes as unstaged modifications in the working tree.
+A human reviewer will validate your work before anything is committed.
 
 Focus on quality and correctness. Ask for clarification if the task description is ambiguous.`;
-
-  if (prSummaryPath) {
-    prompt += `
-
-## PR Summary
-
-After committing all your changes, write a PR summary file to:
-${prSummaryPath}
-
-The file must use this exact format:
-
-\`\`\`
-# <a concise PR title summarising the changes you made>
-
-<a markdown body describing what was changed and why — include bullet points for each meaningful change>
-\`\`\`
-
-The title (first heading) should be a short, descriptive summary of the actual code changes (NOT just the task title).
-The body should help a reviewer understand the scope and purpose of the changes.
-Do NOT commit this file — just write it to the path above.`;
-  }
 
   return prompt;
 }
@@ -204,10 +175,9 @@ export async function runTaskExecutionStep(): Promise<void> {
 
       // Spawn a copilot session
       logger.info(`Spawning execution session for task #${task.id} (model: ${task.model ?? 'default'})`);
-      const prSummaryPath = getPrSummaryPath(worktreePath);
       const { sessionId } = await spawnSession({
         cwd: worktreePath,
-        prompt: buildTaskPrompt(task.id, task.title, task.story?.title, prSummaryPath),
+        prompt: buildTaskPrompt(task.id, task.title, task.story?.title),
         model: task.model ?? undefined,
       });
 

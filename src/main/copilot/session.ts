@@ -40,9 +40,6 @@ const SIGNALS_SUBDIR = 'signals';
 /** Subdirectory name for FE validation screenshots */
 const SCREENSHOTS_SUBDIR = 'screenshots';
 
-/** File name for the PR summary written by Copilot at end of session */
-const PR_SUMMARY_FILE = 'PR.md';
-
 /**
  * Gets the external data directory for a worktree.
  *
@@ -76,14 +73,6 @@ export function getSignalDir(worktreePath: string): string {
  */
 export function getScreenshotsDir(worktreePath: string): string {
   return join(getWorktreeDataDir(worktreePath), SCREENSHOTS_SUBDIR);
-}
-
-/**
- * Gets the path where Copilot should write its PR summary (PR.md).
- * Lives alongside logs/signals/screenshots in the worktree data dir.
- */
-export function getPrSummaryPath(worktreePath: string): string {
-  return join(getWorktreeDataDir(worktreePath), PR_SUMMARY_FILE);
 }
 
 /** Signal file names written by hooks */

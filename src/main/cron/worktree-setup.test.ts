@@ -180,7 +180,7 @@ describe('setupTaskWorktrees', () => {
     expect(mockDb.task.update).toHaveBeenCalledTimes(2);
   });
 
-  it('queries only tasks in TASK_EXECUTION with profileKey and no worktreePath', async () => {
+  it('queries only tasks in COPILOT_KICKOFF with profileKey and no worktreePath', async () => {
     mockDb.task.findMany.mockResolvedValueOnce([]);
 
     await setupTaskWorktrees();
@@ -190,7 +190,7 @@ describe('setupTaskWorktrees', () => {
         state: GridState.COPILOT_KICKOFF,
         profileKey: { not: null },
         worktreePath: null,
-        disabled: true,
+        OR: [{ disabled: true }, { skipCopilot: true }],
       },
     });
   });
@@ -301,12 +301,35 @@ describe('setupTaskWorktrees', () => {
 
     await setupTaskWorktrees();
 
-    expect(spawn).toHaveBeenCalledWith('npm install', [], {
+    expect(spawn).toHaveBeenCalledWith('cmd', ['/c', 'start', '/b', 'cmd', '/c', 'npm install'], {
       cwd: join('C:/repos/test-repo-worktrees/test-repo-1', 'packages/app'),
-      shell: true,
-      detached: true,
+      detached: false,
       stdio: 'ignore',
+      shell: false,
       windowsHide: true,
+    });
+  });
+
+  it('advances skipCopilot tasks directly to TASK_EXECUTION after worktree setup', async () => {
+    const task = makeTask({
+      id: 1001,
+      state: GridState.COPILOT_KICKOFF,
+      profileKey: 'integrate',
+      worktreePath: null,
+      disabled: false,
+      skipCopilot: true,
+    });
+    mockDb.task.findMany
+      .mockResolvedValueOnce([task]) // eligible tasks
+      .mockResolvedValueOnce([]); // assigned paths
+    vi.mocked(createWorktree).mockResolvedValueOnce('C:/repos/test-repo-worktrees/test-repo-1');
+
+    await setupTaskWorktrees();
+
+    expect(createWorktree).toHaveBeenCalledWith('C:/repos/test-repo', 'task', 1001, 'main', undefined, 'Test task');
+    expect(mockDb.task.update).toHaveBeenCalledWith({
+      where: { id: 1001 },
+      data: { worktreePath: 'C:/repos/test-repo-worktrees/test-repo-1', state: GridState.TASK_EXECUTION },
     });
   });
 });

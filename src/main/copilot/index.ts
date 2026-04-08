@@ -16,7 +16,6 @@ export {
   clearSignals,
   ensureDirs,
   getLogDir,
-  getPrSummaryPath,
   getScreenshotsDir,
   SIGNAL_FILES,
   type SpawnSessionOptions,

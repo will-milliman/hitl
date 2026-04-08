@@ -45,7 +45,6 @@ vi.mock('../copilot', () => ({
     SESSION_END: 'session-end.json',
   },
   getLogDir: vi.fn().mockReturnValue('/tmp/test-logs'),
-  getPrSummaryPath: vi.fn().mockReturnValue('/tmp/.hitl-data/test-wt/PR.md'),
   getScreenshotsDir: vi.fn().mockReturnValue('/tmp/.hitl-data/test-wt/screenshots'),
 }));
 

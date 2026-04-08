@@ -34,11 +34,15 @@ function runSetupCommand(worktreePath: string, setup: { cwd: string; command: st
   logger.info(`Task #${taskId}: running setup command in background: "${setup.command}" (cwd: ${cwd})`);
 
   try {
-    const child = spawn(setup.command, [], {
+    // Use `cmd /c start /b` to run the command in the background without
+    // opening a visible console window. On Windows, `detached: true` with
+    // `shell: true` creates a new console window regardless of windowsHide.
+    // The `/b` flag on `start` prevents this.
+    const child = spawn('cmd', ['/c', 'start', '/b', 'cmd', '/c', setup.command], {
       cwd,
-      shell: true,
-      detached: true,
+      detached: false,
       stdio: 'ignore',
+      shell: false,
       windowsHide: true,
     });
     child.unref();
@@ -57,13 +61,17 @@ function runSetupCommand(worktreePath: string, setup: { cwd: string; command: st
 export async function setupTaskWorktrees(): Promise<void> {
   const db = getDb();
 
-  // Find tasks in COPILOT_KICKOFF with a profile but no worktree
+  // Find tasks in COPILOT_KICKOFF with a profile but no worktree.
+  // Include both automated (disabled=true) and manual (skipCopilot=true, disabled=false) tasks.
   const tasks = await db.task.findMany({
     where: {
       state: GridState.COPILOT_KICKOFF,
       profileKey: { not: null },
       worktreePath: null,
-      disabled: true, // Should be disabled (agent is going to work on it)
+      OR: [
+        { disabled: true }, // Automated tasks (agent will work on them)
+        { skipCopilot: true }, // Manual execution tasks (user will work manually)
+      ],
     },
   });
 
@@ -110,10 +118,15 @@ export async function setupTaskWorktrees(): Promise<void> {
         worktreePath = await createWorktree(profile.repoPath, 'task', task.id, profile.defaultBranch, undefined, task.title);
       }
 
-      // Update the task with the worktree path
+      // Update the task with the worktree path.
+      // For skipCopilot (manual execution) tasks, advance directly to TASK_EXECUTION
+      // since no automated Copilot session will be spawned.
       await db.task.update({
         where: { id: task.id },
-        data: { worktreePath },
+        data: {
+          worktreePath,
+          ...(task.skipCopilot ? { state: GridState.TASK_EXECUTION } : {}),
+        },
       });
 
       // Track the newly assigned path so subsequent tasks don't pick the same one
@@ -124,7 +137,11 @@ export async function setupTaskWorktrees(): Promise<void> {
         runSetupCommand(worktreePath, profile.setup, task.id);
       }
 
-      logger.info(`Task #${task.id} worktree ready at ${worktreePath}`);
+      logger.info(
+        task.skipCopilot
+          ? `Task #${task.id} worktree ready at ${worktreePath} (manual execution — moved to TASK_EXECUTION)`
+          : `Task #${task.id} worktree ready at ${worktreePath}`,
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logger.error(`Failed to create worktree for task #${task.id}: ${message}`);
