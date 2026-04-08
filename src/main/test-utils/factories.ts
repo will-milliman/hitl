@@ -41,11 +41,11 @@ export interface TaskRecord {
   prMerged: boolean;
   azureUrl: string;
   disabled: boolean;
-  validateFe: boolean;
   prUpdated: boolean;
   completedAt: Date | null;
   errorMessage: string | null;
   errorAt: Date | null;
+  previousState: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -64,11 +64,11 @@ const TASK_DEFAULTS: TaskRecord = {
   prMerged: false,
   azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/91001',
   disabled: false,
-  validateFe: false,
   prUpdated: false,
   completedAt: null,
   errorMessage: null,
   errorAt: null,
+  previousState: null,
   createdAt: new Date('2025-01-01T00:00:00Z'),
   updatedAt: new Date('2025-01-01T00:00:00Z'),
 };

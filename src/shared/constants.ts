@@ -1,22 +1,28 @@
 /** Grid states that represent the task-centric development lifecycle */
 export enum GridState {
+  STORY_PLANNING = 'STORY_PLANNING',
   PROFILE_ASSIGNMENT = 'PROFILE_ASSIGNMENT',
+  COPILOT_KICKOFF = 'COPILOT_KICKOFF',
   TASK_EXECUTION = 'TASK_EXECUTION',
   PR_REVIEW = 'PR_REVIEW',
   COMPLETED = 'COMPLETED',
   BLOCKED = 'BLOCKED',
   ABANDONED = 'ABANDONED',
   NON_HITL = 'NON_HITL',
+  ERROR = 'ERROR',
 }
 
 export const GRID_LABELS: Record<GridState, string> = {
+  [GridState.STORY_PLANNING]: 'Story Planning',
   [GridState.PROFILE_ASSIGNMENT]: 'Profile Assignment',
+  [GridState.COPILOT_KICKOFF]: 'Copilot Kickoff',
   [GridState.TASK_EXECUTION]: 'Task Execution',
   [GridState.PR_REVIEW]: 'PR Review',
   [GridState.COMPLETED]: 'Completed',
   [GridState.BLOCKED]: 'Blocked',
   [GridState.ABANDONED]: 'Abandoned',
   [GridState.NON_HITL]: 'Non-HITL Tasks',
+  [GridState.ERROR]: 'Error',
 };
 
 export const IDLE_THRESHOLD_SECONDS = 900; // 15 minutes

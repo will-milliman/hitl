@@ -27,21 +27,9 @@ import { existsSync, readFileSync } from 'fs';
 import { promisify } from 'util';
 
 import { GridState } from '../../shared/constants';
-import { getPrSummaryPath, getScreenshotsDir } from '../copilot';
+import { getPrSummaryPath } from '../copilot';
 import { getDb } from '../db';
-import {
-  buildScreenshotMarkdown,
-  buildValidationErrorMarkdown,
-  commitScreenshots,
-  createPullRequest,
-  discoverScreenshots,
-  findPullRequest,
-  getPullRequestByUrl,
-  getRepoInfo,
-  isGhAuthenticated,
-  isPrReadyToMerge,
-  readValidationError,
-} from '../github';
+import { createPullRequest, findPullRequest, getPullRequestByUrl, isGhAuthenticated, isPrReadyToMerge } from '../github';
 import { createLogger } from '../logger';
 import { notifyTaskCompleted } from '../notifications';
 import { loadProfiles } from '../settings';
@@ -101,52 +89,6 @@ function readPrSummary(worktreePath: string): PrSummary | null {
     const message = err instanceof Error ? err.message : String(err);
     logger.warn(`Failed to read PR.md: ${message}`);
     return null;
-  }
-}
-
-/**
- * Builds the validation section for a PR body.
- *
- * Discovers screenshots saved by Copilot during FE validation,
- * commits them to the task branch, and builds markdown image
- * references using raw.githubusercontent.com URLs.
- *
- * If no screenshots exist but a validation error was recorded,
- * includes the error text instead.
- */
-async function buildValidationSection(worktreePath: string, branchName: string): Promise<string> {
-  const screenshotDir = getScreenshotsDir(worktreePath);
-
-  // Check for validation error first
-  const validationError = readValidationError(screenshotDir);
-  if (validationError) {
-    logger.info('FE validation reported an error, including in PR body');
-    return buildValidationErrorMarkdown(validationError);
-  }
-
-  // Discover screenshots
-  const screenshotPaths = discoverScreenshots(screenshotDir);
-  if (screenshotPaths.length === 0) {
-    logger.info('No validation screenshots found');
-    return '';
-  }
-
-  logger.info(`Found ${screenshotPaths.length} validation screenshots, committing to branch`);
-
-  // Commit screenshots to the branch
-  const committed = await commitScreenshots(screenshotPaths, worktreePath);
-  if (committed.length === 0) {
-    logger.warn('Failed to commit validation screenshots');
-    return '';
-  }
-
-  // Get repo info for building raw URLs
-  try {
-    const repoInfo = await getRepoInfo(worktreePath);
-    return buildScreenshotMarkdown(committed, repoInfo.owner, repoInfo.repo, branchName);
-  } catch (err) {
-    logger.error(`Failed to get repo info for screenshot URLs: ${err}`);
-    return '';
   }
 }
 
@@ -229,12 +171,6 @@ async function createDraftPRs(): Promise<void> {
         logger.info(`PR already exists for task #${task.id}: ${existing.url}`);
         prUrl = existing.url;
       } else {
-        // Build validation section for PR body (if FE validation was enabled)
-        let validationMarkdown = '';
-        if (task.validateFe) {
-          validationMarkdown = await buildValidationSection(worktreePath, taskBranch);
-        }
-
         // Read the PR summary written by Copilot (PR.md)
         const summary = readPrSummary(worktreePath);
 
@@ -250,7 +186,6 @@ async function createDraftPRs(): Promise<void> {
         }
 
         if (storyContext) bodyParts.push(storyContext);
-        if (validationMarkdown) bodyParts.push(validationMarkdown);
 
         bodyParts.push('---', `AB#${task.id}`);
 
@@ -266,11 +201,24 @@ async function createDraftPRs(): Promise<void> {
         logger.info(`Created draft PR for task #${task.id}: ${prUrl}`);
       }
 
-      // Save PR URL to database
+      // Save PR URL to database and close virtual desktop
       await db.task.update({
         where: { id: task.id },
         data: { prUrl },
       });
+
+      // Auto-close virtual desktop when PR is detected (step 15 of flow)
+      try {
+        await closeVirtualDesktop(task.id);
+        await db.task.update({
+          where: { id: task.id },
+          data: { desktopOpen: false, desktopName: null },
+        });
+        logger.info(`Task #${task.id}: virtual desktop closed after PR creation`);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.debug(`Task #${task.id}: virtual desktop cleanup after PR: ${message}`);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logger.error(`Failed to create draft PR for task #${task.id}: ${message}`);

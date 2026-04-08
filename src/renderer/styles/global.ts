@@ -42,7 +42,6 @@ export const GlobalStyles = createGlobalStyle`
 
   ::-webkit-scrollbar-thumb {
     background: ${({ theme }) => theme.colors.surface1};
-    border-radius: 4px;
   }
 
   ::-webkit-scrollbar-thumb:hover {

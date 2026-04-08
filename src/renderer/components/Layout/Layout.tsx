@@ -80,7 +80,10 @@ const ContentArea = styled.div`
 const Content = styled.main`
   flex: 1;
   overflow-y: auto;
-  padding: ${({ theme }) => theme.spacing.lg};
+  padding-left: ${({ theme }) => theme.spacing.lg};
+  margin-top: ${({ theme }) => theme.spacing.lg};
+  margin-bottom: ${({ theme }) => theme.spacing.lg};
+  padding-right: ${({ theme }) => theme.spacing.md};
 `;
 
 const StatusSidebar = styled.aside`
@@ -90,6 +93,7 @@ const StatusSidebar = styled.aside`
   margin-right: ${({ theme }) => theme.spacing.lg};
   margin-top: ${({ theme }) => theme.spacing.lg};
   margin-bottom: ${({ theme }) => theme.spacing.lg};
+  margin-left: ${({ theme }) => theme.spacing.md};
   padding: ${({ theme }) => theme.spacing.md};
   background: ${({ theme }) => theme.colors.mantle};
   border: 1px solid ${({ theme }) => theme.colors.surface0};

@@ -9,9 +9,11 @@ datasource db {
 
 /// A story (user story) from Azure DevOps — lightweight parent reference for context
 model Story {
-  id       Int    @id    // Azure DevOps work item ID
+  id       Int     @id    // Azure DevOps work item ID
   title    String
   azureUrl String        // Azure DevOps work item URL
+  planned  Boolean @default(false) // Whether story planning is complete
+  blocked  Boolean @default(false) // Whether the story is blocked in Azure DevOps
 
   tasks Task[]
 }
@@ -34,11 +36,12 @@ model Task {
   desktopOpen  Boolean   @default(false)        // Whether a virtual desktop is open for this task
   desktopName  String?                          // Name of the virtual desktop (branch name)
   skipCopilot  Boolean   @default(false)        // Skip automatic copilot session (manual mode)
-  validateFe   Boolean   @default(false)        // Run Playwright FE validation before PR
   prUpdated    Boolean   @default(false)        // Flag: GitHub webhook indicated PR update
+  lastAgentResponse DateTime?                  // When the agent last became idle (for sorting Task Execution)
   completedAt  DateTime?                        // When the task was moved to COMPLETED
   errorMessage String?                          // Last error message (null = no error)
   errorAt      DateTime?                        // When the last error occurred
+  previousState String?                         // State before ERROR (for retry — restore to this state)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 

@@ -1,7 +1,7 @@
 /**
  * Worktree setup step for the cron job.
  *
- * Finds tasks in TASK_EXECUTION state that have a profile assigned
+ * Finds tasks in COPILOT_KICKOFF state that have a profile assigned
  * but no worktree yet. For each, it first tries to reuse an idle
  * worktree (one that was parked by a completed task), and falls back
  * to creating a new worktree if none are available.
@@ -19,6 +19,8 @@ import { getDb } from '../db';
 import { createLogger } from '../logger';
 import { loadProfiles } from '../settings';
 import { createWorktree, findIdleWorktree, repurposeWorktree } from '../worktree';
+
+import { recordTaskError } from './index';
 
 const logger = createLogger('worktree-setup');
 
@@ -48,17 +50,17 @@ function runSetupCommand(worktreePath: string, setup: { cwd: string; command: st
 
 /**
  * Sets up worktrees for tasks that have been assigned a profile
- * and moved to TASK_EXECUTION but don't have a worktree yet.
+ * and moved to COPILOT_KICKOFF but don't have a worktree yet.
  *
  * Called by the cron job when taskExecutionEnabled is true.
  */
 export async function setupTaskWorktrees(): Promise<void> {
   const db = getDb();
 
-  // Find tasks in TASK_EXECUTION with a profile but no worktree
+  // Find tasks in COPILOT_KICKOFF with a profile but no worktree
   const tasks = await db.task.findMany({
     where: {
-      state: GridState.TASK_EXECUTION,
+      state: GridState.COPILOT_KICKOFF,
       profileKey: { not: null },
       worktreePath: null,
       disabled: true, // Should be disabled (agent is going to work on it)
@@ -126,7 +128,25 @@ export async function setupTaskWorktrees(): Promise<void> {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logger.error(`Failed to create worktree for task #${task.id}: ${message}`);
-      // Don't fail the whole step — continue with other tasks
+
+      // Move the task to ERROR state so the cron doesn't retry every tick.
+      // The user can investigate and retry from the Error grid.
+      try {
+        await db.task.update({
+          where: { id: task.id },
+          data: {
+            state: GridState.ERROR,
+            previousState: GridState.COPILOT_KICKOFF,
+            disabled: false,
+          },
+        });
+        await recordTaskError(task.id, message);
+        logger.info(`Task #${task.id} moved to ERROR state`);
+      } catch (updateErr) {
+        logger.error(`Failed to move task #${task.id} to ERROR state`, {
+          error: updateErr instanceof Error ? updateErr.message : String(updateErr),
+        });
+      }
     }
   }
 }

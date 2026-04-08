@@ -5,12 +5,12 @@ import type { ProfileMap, Task } from '../../shared/types';
 import { Grid } from '../components/Grid';
 import {
   ActionLink,
-  ActivityIndicator,
   ExternalLink,
   OverflowMenu,
   Placeholder,
   StatusIndicator,
   WorkItemTypeIcon,
+  formatRelativeTime,
 } from '../components/common';
 import { theme } from '../styles/theme';
 import { trpc } from '../trpc/client';
@@ -26,7 +26,6 @@ export function TaskExecutionGrid({ tasks, profiles }: TaskExecutionGridProps) {
   const utils = trpc.useContext();
   const openVSCode = trpc.openInVSCode.useMutation();
   const openTerminal = trpc.openInTerminal.useMutation();
-  const openExternal = trpc.openExternal.useMutation();
   const openExternalBatch = trpc.openExternalBatch.useMutation();
   const openSession = trpc.openSession.useMutation({ onSuccess: () => utils.tasks.invalidate() });
   const startCopilotSession = trpc.startCopilotSession.useMutation({ onSuccess: () => utils.tasks.invalidate() });
@@ -34,13 +33,25 @@ export function TaskExecutionGrid({ tasks, profiles }: TaskExecutionGridProps) {
   const closeVirtualDesktop = trpc.closeVirtualDesktop.useMutation();
   const resetTask = trpc.resetTask.useMutation({ onSuccess: () => utils.tasks.invalidate() });
 
+  // Sort by lastAgentResponse ascending — oldest (needs attention longest) at top.
+  // Tasks without a lastAgentResponse go to the bottom.
+  const sortedTasks = useMemo(() => {
+    return [...tasks].sort((a, b) => {
+      const aTime = a.lastAgentResponse ? new Date(a.lastAgentResponse).getTime() : Infinity;
+      const bTime = b.lastAgentResponse ? new Date(b.lastAgentResponse).getTime() : Infinity;
+      return aTime - bTime;
+    });
+  }, [tasks]);
+
   const columns = useMemo(
     () => [
       columnHelper.display({
         id: 'status',
         header: '',
         meta: { fixedWidth: 20 },
-        cell: (info) => <StatusIndicator errorMessage={info.row.original.errorMessage} disabled={info.row.original.disabled} />,
+        cell: (info) => (
+          <StatusIndicator errorMessage={info.row.original.errorMessage} disabled={info.row.original.desktopOpen} />
+        ),
       }),
       columnHelper.accessor('id', {
         header: 'Task Id',
@@ -55,58 +66,13 @@ export function TaskExecutionGrid({ tasks, profiles }: TaskExecutionGridProps) {
       columnHelper.accessor('title', {
         header: 'Task Title',
       }),
-      columnHelper.accessor('sessionId', {
-        header: 'Copilot Session',
-        meta: { shrink: true },
+      columnHelper.accessor('lastAgentResponse', {
+        header: 'Last Agent Response',
+        meta: { shrink: true, minWidth: 120 },
         cell: (info) => {
-          const sessionId = info.getValue();
-          const worktreePath = info.row.original.worktreePath;
-          const disabled = info.row.original.disabled;
-          const skipCopilot = info.row.original.skipCopilot;
-          const taskId = info.row.original.id;
-
-          // Manual mode: no session yet, show "Start" link
-          if (!sessionId && skipCopilot && worktreePath) {
-            return (
-              <ActionLink
-                onClick={() => startCopilotSession.mutate({ cwd: worktreePath, taskId })}
-                title="Start a new copilot session in this worktree"
-              >
-                Start
-              </ActionLink>
-            );
-          }
-
-          if (!sessionId && disabled) {
-            return <ActivityIndicator tooltip="Starting session..." />;
-          }
-          if (!sessionId) return <Placeholder />;
-          if (disabled) {
-            return (
-              <ActionLink
-                onClick={() => {
-                  if (worktreePath) {
-                    openSession.mutate({ sessionId, cwd: worktreePath, taskId });
-                  }
-                }}
-                title={`Copilot session ${sessionId} is active — click to open in terminal`}
-              >
-                <ActivityIndicator tooltip={`Active session: ${sessionId}`} />
-              </ActionLink>
-            );
-          }
-          return (
-            <ActionLink
-              onClick={() => {
-                if (worktreePath) {
-                  openSession.mutate({ sessionId, cwd: worktreePath, taskId });
-                }
-              }}
-              title={`Open Copilot session ${sessionId} in terminal`}
-            >
-              {sessionId}
-            </ActionLink>
-          );
+          const value = info.getValue();
+          if (!value) return <Placeholder />;
+          return <span title={new Date(value).toLocaleString()}>{formatRelativeTime(value)}</span>;
         },
       }),
       columnHelper.accessor('worktreePath', {
@@ -218,15 +184,6 @@ export function TaskExecutionGrid({ tasks, profiles }: TaskExecutionGridProps) {
           );
         },
       }),
-      columnHelper.accessor('prUrl', {
-        header: 'Draft PR',
-        meta: { shrink: true, minWidth: 80 },
-        cell: (info) => {
-          const prUrl = info.getValue();
-          if (!prUrl) return <Placeholder />;
-          return <ExternalLink href={prUrl}>{prUrl.split('/').pop()}</ExternalLink>;
-        },
-      }),
       columnHelper.display({
         id: 'actions',
         header: '',
@@ -250,7 +207,6 @@ export function TaskExecutionGrid({ tasks, profiles }: TaskExecutionGridProps) {
     [
       openVSCode,
       openTerminal,
-      openExternal,
       openExternalBatch,
       openSession,
       startCopilotSession,
@@ -265,9 +221,9 @@ export function TaskExecutionGrid({ tasks, profiles }: TaskExecutionGridProps) {
   return (
     <Grid
       title="Task Execution"
-      data={tasks}
+      data={sortedTasks}
       columns={columns}
-      getRowDisabled={(row) => row.disabled}
+      getRowDisabled={(row) => row.desktopOpen}
       accentColor={theme.colors.blue}
     />
   );

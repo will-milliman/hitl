@@ -16,7 +16,7 @@
  * - Task branches:  task/<workItemId>
  */
 import { execFile } from 'child_process';
-import { existsSync, readdirSync } from 'fs';
+import { existsSync, readdirSync, rmSync } from 'fs';
 import { basename, dirname, join, resolve } from 'path';
 import { promisify } from 'util';
 
@@ -25,7 +25,6 @@ const execFileAsync = promisify(execFile);
 /** Options for git command execution */
 interface GitOptions {
   cwd: string;
-  timeout?: number;
 }
 
 /** Parsed worktree entry from `git worktree list` */
@@ -40,17 +39,42 @@ export interface WorktreeEntry {
  * Runs a git command in the given directory.
  */
 async function git(args: string[], options: GitOptions): Promise<{ stdout: string; stderr: string }> {
-  const { cwd, timeout = 30_000 } = options;
+  const { cwd } = options;
   try {
     return await execFileAsync('git', args, {
       cwd,
-      timeout,
       windowsHide: true,
     });
   } catch (err: unknown) {
     const error = err as Error & { stdout?: string; stderr?: string };
     throw new Error(`[worktree] git ${args.join(' ')} failed in ${cwd}: ${error.stderr || error.message}`);
   }
+}
+
+/**
+ * Cleans up a partially-created worktree after a failed `git worktree add`.
+ *
+ * If the timeout kills git mid-checkout, it leaves a broken directory on disk
+ * and a stale worktree entry in git's bookkeeping. This removes both so the
+ * next attempt starts clean.
+ */
+function cleanupPartialWorktree(repoPath: string, worktreePath: string): void {
+  try {
+    if (existsSync(worktreePath)) {
+      console.warn(`[worktree] Removing partial worktree directory at ${worktreePath}`);
+      rmSync(worktreePath, { recursive: true, force: true });
+    }
+  } catch (err) {
+    console.error(`[worktree] Failed to remove partial worktree at ${worktreePath}:`, err);
+  }
+
+  // Prune stale worktree entries so git doesn't think this path is still in use
+  execFileAsync('git', ['worktree', 'prune'], {
+    cwd: repoPath,
+    windowsHide: true,
+  }).catch((err) => {
+    console.error(`[worktree] Failed to prune worktrees after cleanup:`, err);
+  });
 }
 
 /**
@@ -362,9 +386,14 @@ export async function createWorktree(
       // Branch exists but no worktree — create a new numbered worktree for it
       const worktreePath = getNextWorktreePath(repoPath);
       console.log(`[worktree] Branch ${existingBranch} exists, adding worktree at ${worktreePath}`);
-      await git(['worktree', 'add', worktreePath, existingBranch], {
-        cwd: repoPath,
-      });
+      try {
+        await git(['worktree', 'add', worktreePath, existingBranch], {
+          cwd: repoPath,
+        });
+      } catch (err) {
+        cleanupPartialWorktree(repoPath, worktreePath);
+        throw err;
+      }
       return worktreePath;
     }
   } catch {
@@ -377,7 +406,14 @@ export async function createWorktree(
   // Create new worktree with new branch using next sequential number
   const worktreePath = getNextWorktreePath(repoPath);
   console.log(`[worktree] Creating worktree at ${worktreePath} (branch: ${branchName} from ${base})`);
-  await git(['worktree', 'add', '-b', branchName, worktreePath, base], { cwd: repoPath });
+  try {
+    await git(['worktree', 'add', '-b', branchName, worktreePath, base], {
+      cwd: repoPath,
+    });
+  } catch (err) {
+    cleanupPartialWorktree(repoPath, worktreePath);
+    throw err;
+  }
 
   return worktreePath;
 }

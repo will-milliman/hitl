@@ -28,7 +28,11 @@ vi.mock('../logger', () => ({
 
 const mockDb = {
   story: {
+    findUnique: vi.fn().mockResolvedValue(null),
     upsert: vi.fn(),
+    create: vi.fn(),
+    findMany: vi.fn().mockResolvedValue([]),
+    delete: vi.fn(),
   },
   task: {
     findUnique: vi.fn(),
@@ -36,6 +40,7 @@ const mockDb = {
     create: vi.fn(),
     update: vi.fn(),
     deleteMany: vi.fn(),
+    count: vi.fn().mockResolvedValue(0),
   },
 };
 

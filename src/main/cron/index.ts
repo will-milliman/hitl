@@ -20,6 +20,7 @@ import { createLogger } from '../logger';
 import { notifyCronError } from '../notifications';
 
 import { runPrCheckStep } from './pr-check';
+import { reconcileStates } from './state-reconciliation';
 import { syncWorkItems } from './sync';
 import { resumeTaskWatchers, runTaskExecutionStep } from './task-execution';
 import { setupTaskWorktrees } from './worktree-setup';
@@ -214,6 +215,13 @@ export function startCron(): void {
   // Resume signal watchers from previous session
   resumeTaskWatchers().catch((err) => {
     logger.error('Failed to resume task watchers', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
+
+  // Run state reconciliation on startup to fix any out-of-sync items
+  reconcileStates().catch((err) => {
+    logger.error('Failed to reconcile states on startup', {
       error: err instanceof Error ? err.message : String(err),
     });
   });

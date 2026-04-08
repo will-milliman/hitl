@@ -27,6 +27,10 @@ vi.mock('../logger', () => ({
   }),
 }));
 
+vi.mock('./index', () => ({
+  recordTaskError: vi.fn(),
+}));
+
 vi.mock('child_process', () => ({
   spawn: vi.fn().mockReturnValue({ unref: vi.fn() }),
 }));
@@ -116,7 +120,7 @@ describe('setupTaskWorktrees', () => {
     expect(mockDb.task.update).not.toHaveBeenCalled();
   });
 
-  it('continues with other tasks when createWorktree fails', async () => {
+  it('moves task to ERROR state when createWorktree fails, continues with other tasks', async () => {
     const task1 = makeTask({
       id: 1001,
       state: GridState.TASK_EXECUTION,
@@ -140,9 +144,18 @@ describe('setupTaskWorktrees', () => {
 
     await setupTaskWorktrees();
 
-    // First task failed, second should still succeed
+    // First task should be moved to ERROR state
+    expect(mockDb.task.update).toHaveBeenCalledWith({
+      where: { id: 1001 },
+      data: {
+        state: GridState.ERROR,
+        previousState: GridState.COPILOT_KICKOFF,
+        disabled: false,
+      },
+    });
+
+    // Second task should still succeed
     expect(createWorktree).toHaveBeenCalledTimes(2);
-    expect(mockDb.task.update).toHaveBeenCalledTimes(1);
     expect(mockDb.task.update).toHaveBeenCalledWith({
       where: { id: 1002 },
       data: { worktreePath: 'C:/repos/test-repo-worktrees/test-repo-2' },
@@ -174,7 +187,7 @@ describe('setupTaskWorktrees', () => {
 
     expect(mockDb.task.findMany).toHaveBeenCalledWith({
       where: {
-        state: GridState.TASK_EXECUTION,
+        state: GridState.COPILOT_KICKOFF,
         profileKey: { not: null },
         worktreePath: null,
         disabled: true,

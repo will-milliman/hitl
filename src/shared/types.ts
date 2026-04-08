@@ -3,6 +3,8 @@ export interface Story {
   id: number;
   title: string;
   azureUrl: string;
+  planned: boolean;
+  blocked: boolean;
 }
 
 /** A task or bug work item — the primary pipeline entity */
@@ -23,11 +25,12 @@ export interface Task {
   desktopOpen: boolean;
   desktopName: string | null;
   skipCopilot: boolean;
-  validateFe: boolean;
   prUpdated: boolean;
+  lastAgentResponse: Date | string | null;
   completedAt: Date | string | null;
   errorMessage: string | null;
   errorAt: Date | string | null;
+  previousState: string | null;
   createdAt: Date | string;
   updatedAt: Date | string;
   story?: Story | null;
@@ -40,11 +43,6 @@ export interface Profile {
   description?: string;
   /** Optional path to a .code-workspace file (relative to repoPath) */
   workspace?: string;
-  /** FE validation config — if present, the repo supports Playwright-based visual validation */
-  validation?: {
-    /** Path to the Copilot skill file in the repo (e.g. ".github/copilot/skills/validate-fe.md") */
-    skillPath: string;
-  };
   /** Setup command to run in the background after a worktree is created/reused */
   setup?: {
     /** Working directory for the command (relative to worktree root) */

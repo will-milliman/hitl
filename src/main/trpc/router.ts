@@ -19,6 +19,7 @@ import {
 import { getCronStatus } from '../cron';
 import { getAzureConfig } from '../cron/config';
 import { cleanupCompletedTask } from '../cron/pr-check';
+import { reconcileStates } from '../cron/state-reconciliation';
 import { getDb } from '../db';
 import {
   extractPrNumber,
@@ -45,11 +46,23 @@ export const appRouter = t.router({
     return { status: 'ok', timestamp: Date.now() };
   }),
 
-  /** Get all stories (lightweight parent references) */
-  stories: t.procedure.query(async () => {
-    const db = getDb();
-    return db.story.findMany();
-  }),
+  /** Get all stories (optionally filtered by planned status) */
+  stories: t.procedure
+    .input(
+      z
+        .object({
+          planned: z.boolean().optional(),
+          blocked: z.boolean().optional(),
+        })
+        .optional(),
+    )
+    .query(async ({ input }) => {
+      const db = getDb();
+      const where: Record<string, unknown> = {};
+      if (input?.planned !== undefined) where.planned = input.planned;
+      if (input?.blocked !== undefined) where.blocked = input.blocked;
+      return db.story.findMany({ where });
+    }),
 
   /** Get all tasks (optionally filtered by state or storyId) */
   tasks: t.procedure
@@ -100,7 +113,7 @@ export const appRouter = t.router({
 
   // ─── Mutations ────────────────────────────────────────
 
-  /** Assign a profile to a task and advance it to TASK_EXECUTION */
+  /** Assign a profile to a task and advance it to COPILOT_KICKOFF */
   assignTaskProfile: t.procedure
     .input(
       z.object({
@@ -108,32 +121,21 @@ export const appRouter = t.router({
         profileKey: z.string(),
         skipCopilot: z.boolean().optional(),
         model: z.string().optional(),
-        validateFe: z.boolean().optional(),
       }),
     )
     .mutation(async ({ input }) => {
       const db = getDb();
 
-      // Move work item from New to Active in Azure DevOps
-      const azureConfig = getAzureConfig();
-      if (azureConfig) {
-        try {
-          await updateWorkItemState(azureConfig, input.taskId, 'Active');
-        } catch (err) {
-          console.error(`[router] Failed to update Azure DevOps state for task #${input.taskId}:`, err);
-          // Non-blocking: continue with local state transition even if Azure update fails
-        }
-      }
+      // No longer push Azure Active state here — that happens on first Virtual Desktop open
 
       return db.task.update({
         where: { id: input.taskId },
         data: {
           profileKey: input.profileKey,
-          state: 'TASK_EXECUTION',
+          state: GridState.COPILOT_KICKOFF,
           disabled: input.skipCopilot ? false : true, // If skipping copilot, don't disable (user acts manually)
           skipCopilot: input.skipCopilot ?? false,
           model: input.model ?? null,
-          validateFe: input.validateFe ?? false,
         },
       });
     }),
@@ -144,6 +146,27 @@ export const appRouter = t.router({
     return db.task.update({
       where: { id: input.taskId },
       data: { state: 'NON_HITL' },
+    });
+  }),
+
+  /**
+   * Complete story planning — validates that child tasks exist, then hides
+   * the story from the Story Planning grid by setting planned = true.
+   */
+  completeStoryPlanning: t.procedure.input(z.object({ storyId: z.number() })).mutation(async ({ input }) => {
+    const db = getDb();
+
+    // Validate that child tasks exist for this story
+    const childCount = await db.task.count({ where: { storyId: input.storyId } });
+    if (childCount === 0) {
+      throw new Error(
+        `No tasks found for story #${input.storyId}. Create tasks in Azure DevOps before marking planning as complete.`,
+      );
+    }
+
+    return db.story.update({
+      where: { id: input.storyId },
+      data: { planned: true },
     });
   }),
 
@@ -176,10 +199,11 @@ export const appRouter = t.router({
         prMerged: false,
         prUpdated: false,
         skipCopilot: false,
-        validateFe: false,
+        lastAgentResponse: null,
         completedAt: null,
         errorMessage: null,
         errorAt: null,
+        previousState: null,
       },
     });
   }),
@@ -321,6 +345,12 @@ export const appRouter = t.router({
       });
     }),
 
+  /** Reconcile all grid item states against Azure DevOps */
+  syncStates: t.procedure.mutation(async () => {
+    const result = await reconcileStates();
+    return result;
+  }),
+
   /** Open a path in VS Code (optionally opening a workspace file) */
   openInVSCode: t.procedure.input(z.object({ path: z.string(), workspace: z.string().nullish() })).mutation(async ({ input }) => {
     // If a workspace file is specified, open it instead of the folder
@@ -417,6 +447,23 @@ export const appRouter = t.router({
             if (input?.taskId) {
               try {
                 const db = getDb();
+                const task = await db.task.findUnique({
+                  where: { id: input.taskId },
+                  select: { desktopOpen: true, state: true },
+                });
+
+                // Push Azure "Active" state on first Virtual Desktop open for tasks in TASK_EXECUTION
+                if (task && !task.desktopOpen && task.state === GridState.TASK_EXECUTION) {
+                  const azureConfig = getAzureConfig();
+                  if (azureConfig) {
+                    try {
+                      await updateWorkItemState(azureConfig, input.taskId, 'Active');
+                    } catch (azureErr) {
+                      console.error(`[router] Failed to update Azure state for task #${input.taskId}:`, azureErr);
+                    }
+                  }
+                }
+
                 await db.task.update({
                   where: { id: input.taskId },
                   data: { desktopOpen: true, desktopName: desktopName ?? null },
@@ -766,6 +813,29 @@ After making your fixes:
     });
   }),
 
+  /** Retry a task in ERROR state — moves it back to its previous state so the pipeline can resume */
+  retryTask: t.procedure.input(z.object({ taskId: z.number() })).mutation(async ({ input }) => {
+    const db = getDb();
+    const task = await db.task.findUniqueOrThrow({ where: { id: input.taskId } });
+
+    if (task.state !== GridState.ERROR) {
+      throw new Error(`Task #${input.taskId} is not in ERROR state (current: ${task.state})`);
+    }
+
+    // Restore to the state it was in before the error, defaulting to COPILOT_KICKOFF
+    const restoreState = task.previousState ?? GridState.COPILOT_KICKOFF;
+
+    return db.task.update({
+      where: { id: input.taskId },
+      data: {
+        state: restoreState,
+        previousState: null,
+        errorMessage: null,
+        errorAt: null,
+      },
+    });
+  }),
+
   // ─── Settings ────────────────────────────────────────
 
   /** Get app settings */
@@ -806,11 +876,6 @@ After making your fixes:
               defaultBranch: z.string(),
               description: z.string().optional(),
               workspace: z.string().optional(),
-              validation: z
-                .object({
-                  skillPath: z.string(),
-                })
-                .optional(),
               setup: z
                 .object({
                   cwd: z.string(),

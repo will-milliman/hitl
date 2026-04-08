@@ -67,7 +67,7 @@ vi.mock('../db', () => ({
 
 beforeAll(async () => {
   db = await setupTestDb();
-}, 30_000);
+}, 60_000);
 
 afterEach(async () => {
   await resetTestDb();
@@ -98,7 +98,7 @@ describe('runTaskExecutionStep (integration)', () => {
         id: 8010,
         title: 'Ready for execution',
         azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/8010',
-        state: GridState.TASK_EXECUTION,
+        state: GridState.COPILOT_KICKOFF,
         profileKey: 'integrate',
         worktreePath: 'C:/repos/test-wt',
         sessionId: null,
@@ -137,7 +137,7 @@ describe('runTaskExecutionStep (integration)', () => {
         id: 8011,
         title: 'No worktree',
         azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/8011',
-        state: GridState.TASK_EXECUTION,
+        state: GridState.COPILOT_KICKOFF,
         profileKey: 'integrate',
         worktreePath: null,
         sessionId: null,
@@ -158,7 +158,7 @@ describe('runTaskExecutionStep (integration)', () => {
         id: 8012,
         title: 'Has session',
         azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/8012',
-        state: GridState.TASK_EXECUTION,
+        state: GridState.COPILOT_KICKOFF,
         profileKey: 'integrate',
         worktreePath: 'C:/repos/test-wt',
         sessionId: 'existing-session',
@@ -180,7 +180,7 @@ describe('runTaskExecutionStep (integration)', () => {
         id: 8020,
         title: 'Stale worktree',
         azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/8020',
-        state: GridState.TASK_EXECUTION,
+        state: GridState.COPILOT_KICKOFF,
         worktreePath: 'C:/nonexistent/path',
         sessionId: 'stale-session',
         disabled: true,
@@ -203,7 +203,7 @@ describe('runTaskExecutionStep (integration)', () => {
         id: 8021,
         title: 'Session ended',
         azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/8021',
-        state: GridState.TASK_EXECUTION,
+        state: GridState.COPILOT_KICKOFF,
         worktreePath: 'C:/repos/test-wt-ended',
         sessionId: 'ended-session',
         disabled: true,
@@ -217,9 +217,10 @@ describe('runTaskExecutionStep (integration)', () => {
 
     await runTaskExecutionStep();
 
-    // disabled should be set to false (ready for review)
+    // disabled should be set to false (ready for review) and state moved to TASK_EXECUTION
     const task = await db.task.findUnique({ where: { id: 8021 } });
     expect(task!.disabled).toBe(false);
+    expect(task!.state).toBe(GridState.TASK_EXECUTION);
     expect(task!.sessionId).toBe('ended-session'); // session ID preserved
   });
 
@@ -229,7 +230,7 @@ describe('runTaskExecutionStep (integration)', () => {
         id: 8022,
         title: 'Session idle',
         azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/8022',
-        state: GridState.TASK_EXECUTION,
+        state: GridState.COPILOT_KICKOFF,
         worktreePath: 'C:/repos/test-wt-idle',
         sessionId: 'idle-session',
         disabled: true,
@@ -245,6 +246,7 @@ describe('runTaskExecutionStep (integration)', () => {
 
     const task = await db.task.findUnique({ where: { id: 8022 } });
     expect(task!.disabled).toBe(false);
+    expect(task!.state).toBe(GridState.TASK_EXECUTION);
   });
 
   it('resets sessionId when log directory does not exist, then re-spawns', async () => {
@@ -253,7 +255,7 @@ describe('runTaskExecutionStep (integration)', () => {
         id: 8023,
         title: 'No log dir',
         azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/8023',
-        state: GridState.TASK_EXECUTION,
+        state: GridState.COPILOT_KICKOFF,
         worktreePath: 'C:/repos/test-wt-nologs',
         sessionId: 'dead-session',
         disabled: true,
@@ -285,7 +287,7 @@ describe('runTaskExecutionStep (integration)', () => {
         id: 8030,
         title: 'Task A',
         azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/8030',
-        state: GridState.TASK_EXECUTION,
+        state: GridState.COPILOT_KICKOFF,
         worktreePath: 'C:/repos/wt-a',
         sessionId: null,
         disabled: true,
@@ -296,7 +298,7 @@ describe('runTaskExecutionStep (integration)', () => {
         id: 8031,
         title: 'Task B',
         azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/8031',
-        state: GridState.TASK_EXECUTION,
+        state: GridState.COPILOT_KICKOFF,
         worktreePath: 'C:/repos/wt-b',
         sessionId: null,
         disabled: true,
@@ -323,7 +325,7 @@ describe('runTaskExecutionStep (integration)', () => {
         id: 8040,
         title: 'Will fail',
         azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/8040',
-        state: GridState.TASK_EXECUTION,
+        state: GridState.COPILOT_KICKOFF,
         worktreePath: 'C:/repos/wt-fail',
         sessionId: null,
         disabled: true,
@@ -334,7 +336,7 @@ describe('runTaskExecutionStep (integration)', () => {
         id: 8041,
         title: 'Will succeed',
         azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/8041',
-        state: GridState.TASK_EXECUTION,
+        state: GridState.COPILOT_KICKOFF,
         worktreePath: 'C:/repos/wt-ok',
         sessionId: null,
         disabled: true,

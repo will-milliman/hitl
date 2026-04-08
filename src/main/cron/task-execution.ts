@@ -1,7 +1,7 @@
 /**
  * Task execution step for the cron job.
  *
- * Finds tasks in TASK_EXECUTION state that have a worktree set up
+ * Finds tasks in COPILOT_KICKOFF state that have a worktree set up
  * but no copilot session yet. For each, it:
  * 1. Sets up hooks in the worktree
  * 2. Spawns a copilot CLI session with a task implementation prompt
@@ -10,7 +10,7 @@
  *
  * Also handles recovery of interrupted flows:
  * - Worktree path points to a non-existent directory -> reset to null
- * - Session ended while app was off -> detect via signal files, mark disabled=false
+ * - Session ended while app was off -> detect via signal, move to TASK_EXECUTION
  * - Session died without signaling -> detect stale sessions, reset sessionId
  *
  * This step is gated by the `taskExecutionEnabled` flag in CronState.
@@ -23,7 +23,6 @@ import {
   ensureGlobalHooks,
   getLogDir,
   getPrSummaryPath,
-  getScreenshotsDir,
   isWatching,
   readLatestSignal,
   spawnSession,
@@ -31,7 +30,8 @@ import {
 } from '../copilot';
 import { getDb } from '../db';
 import { createLogger } from '../logger';
-import { loadProfiles } from '../settings';
+
+import { recordTaskError } from './index';
 
 const logger = createLogger('task-exec');
 
@@ -39,16 +39,8 @@ const logger = createLogger('task-exec');
  * The task execution prompt sent to Copilot CLI.
  *
  * Instructs the agent to implement the task as described.
- * When FE validation is enabled, appends instructions to validate
- * UI changes using the repo's Playwright skill and save screenshots.
  */
-function buildTaskPrompt(
-  taskId: number,
-  taskTitle: string,
-  storyTitle?: string,
-  validation?: { screenshotDir: string },
-  prSummaryPath?: string,
-): string {
+function buildTaskPrompt(taskId: number, taskTitle: string, storyTitle?: string, prSummaryPath?: string): string {
   const storyContext = storyTitle ? `\nParent Story: ${storyTitle}\n` : '';
   let prompt = `You are implementing a development task.
 ${storyContext}
@@ -87,30 +79,16 @@ The body should help a reviewer understand the scope and purpose of the changes.
 Do NOT commit this file — just write it to the path above.`;
   }
 
-  if (validation) {
-    prompt += `
-
-## Frontend Validation
-
-After implementing and committing your changes, validate that the UI works correctly:
-
-1. Follow the Playwright validation skill in this repo for instructions on how to start the app and capture screenshots.
-2. Save all screenshots to: ${validation.screenshotDir}
-3. Name screenshots descriptively (e.g., login-page-updated.png, dashboard-new-widget.png).
-4. If the app fails to start or screenshots cannot be captured, document the issue in a file at ${validation.screenshotDir}/validation-error.txt instead.
-5. Make sure to stop the dev server when you are done.`;
-  }
-
   return prompt;
 }
 
 /**
- * Recovers tasks in TASK_EXECUTION that are stuck due to interrupted flows.
+ * Recovers tasks in COPILOT_KICKOFF that are stuck due to interrupted flows.
  *
  * Handles these scenarios:
  * 1. Worktree path set but directory doesn't exist -> reset worktreePath to null
- * 2. Session ended while app was off -> session-end signal exists, mark disabled=false
- * 3. Session idle while app was off -> mark disabled=false
+ * 2. Session ended while app was off -> session-end signal exists, move to TASK_EXECUTION
+ * 3. Session idle while app was off -> move to TASK_EXECUTION
  * 4. Session died without signaling -> no log directory, reset sessionId
  */
 async function recoverInterruptedTasks(): Promise<void> {
@@ -119,7 +97,7 @@ async function recoverInterruptedTasks(): Promise<void> {
   // Scenario 1: Worktree path points to a non-existent directory
   const tasksWithWorktrees = await db.task.findMany({
     where: {
-      state: GridState.TASK_EXECUTION,
+      state: GridState.COPILOT_KICKOFF,
       worktreePath: { not: null },
       disabled: true,
     },
@@ -138,7 +116,7 @@ async function recoverInterruptedTasks(): Promise<void> {
   // Scenario 2 & 3: Tasks with a session that may have ended or died
   const tasksWithSessions = await db.task.findMany({
     where: {
-      state: GridState.TASK_EXECUTION,
+      state: GridState.COPILOT_KICKOFF,
       sessionId: { not: null },
       worktreePath: { not: null },
       disabled: true,
@@ -151,19 +129,19 @@ async function recoverInterruptedTasks(): Promise<void> {
     const signal = readLatestSignal(worktreePath);
 
     if (signal?.signal === SIGNAL_FILES.SESSION_END) {
-      logger.info(`Task #${task.id}: session ended while app was off, enabling for review`);
+      logger.info(`Task #${task.id}: session ended while app was off, moving to TASK_EXECUTION`);
       await db.task.update({
         where: { id: task.id },
-        data: { disabled: false },
+        data: { state: GridState.TASK_EXECUTION, disabled: false },
       });
       continue;
     }
 
     if (signal?.signal === SIGNAL_FILES.SESSION_IDLE) {
-      logger.info(`Task #${task.id}: session idle while app was off, enabling`);
+      logger.info(`Task #${task.id}: session idle while app was off, moving to TASK_EXECUTION`);
       await db.task.update({
         where: { id: task.id },
-        data: { disabled: false },
+        data: { state: GridState.TASK_EXECUTION, disabled: false },
       });
       continue;
     }
@@ -197,10 +175,10 @@ export async function runTaskExecutionStep(): Promise<void> {
   // First, recover any interrupted flows from previous app sessions
   await recoverInterruptedTasks();
 
-  // Find tasks in TASK_EXECUTION with a worktree but no session
+  // Find tasks in COPILOT_KICKOFF with a worktree but no session
   const tasks = await db.task.findMany({
     where: {
-      state: GridState.TASK_EXECUTION,
+      state: GridState.COPILOT_KICKOFF,
       worktreePath: { not: null },
       sessionId: null,
       disabled: true, // Should be disabled (agent will be working)
@@ -224,24 +202,12 @@ export async function runTaskExecutionStep(): Promise<void> {
       // Ensure global hooks are configured
       ensureGlobalHooks();
 
-      // Determine if FE validation is enabled for this task
-      let validation: { screenshotDir: string } | undefined;
-      if (task.validateFe && task.profileKey) {
-        const profiles = loadProfiles();
-        const profile = profiles[task.profileKey];
-        if (profile?.validation) {
-          const screenshotDir = getScreenshotsDir(worktreePath);
-          validation = { screenshotDir };
-          logger.info(`Task #${task.id}: FE validation enabled, screenshots → ${screenshotDir}`);
-        }
-      }
-
       // Spawn a copilot session
       logger.info(`Spawning execution session for task #${task.id} (model: ${task.model ?? 'default'})`);
       const prSummaryPath = getPrSummaryPath(worktreePath);
       const { sessionId } = await spawnSession({
         cwd: worktreePath,
-        prompt: buildTaskPrompt(task.id, task.title, task.story?.title, validation, prSummaryPath),
+        prompt: buildTaskPrompt(task.id, task.title, task.story?.title, prSummaryPath),
         model: task.model ?? undefined,
       });
 
@@ -260,7 +226,24 @@ export async function runTaskExecutionStep(): Promise<void> {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logger.error(`Failed to start execution for task #${task.id}: ${message}`);
-      // Don't fail the whole step — continue with other tasks
+
+      // Move the task to ERROR state so the cron doesn't retry every tick
+      try {
+        await db.task.update({
+          where: { id: task.id },
+          data: {
+            state: GridState.ERROR,
+            previousState: GridState.COPILOT_KICKOFF,
+            disabled: false,
+          },
+        });
+        await recordTaskError(task.id, message);
+        logger.info(`Task #${task.id} moved to ERROR state`);
+      } catch (updateErr) {
+        logger.error(`Failed to move task #${task.id} to ERROR state`, {
+          error: updateErr instanceof Error ? updateErr.message : String(updateErr),
+        });
+      }
     }
   }
 }
@@ -276,7 +259,7 @@ export async function resumeTaskWatchers(): Promise<void> {
 
   const tasksWithSessions = await db.task.findMany({
     where: {
-      state: GridState.TASK_EXECUTION,
+      state: { in: [GridState.COPILOT_KICKOFF, GridState.TASK_EXECUTION] },
       sessionId: { not: null },
       worktreePath: { not: null },
       disabled: true,

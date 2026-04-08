@@ -36,11 +36,6 @@ export interface AppSettings {
       defaultBranch: string;
       description?: string;
       workspace?: string;
-      /** FE validation config — if present, the repo supports Playwright-based visual validation */
-      validation?: {
-        /** Path to the Copilot skill file in the repo (e.g. ".github/copilot/skills/validate-fe.md") */
-        skillPath: string;
-      };
       /** Setup command to run in the background after a worktree is created/reused */
       setup?: {
         /** Working directory for the command (relative to worktree root) */
@@ -206,7 +201,6 @@ export function loadProfiles(): Record<
     defaultBranch: string;
     description?: string;
     workspace?: string;
-    validation?: { skillPath: string };
     setup?: { cwd: string; command: string };
   }
 > {

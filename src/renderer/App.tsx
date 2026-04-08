@@ -4,16 +4,19 @@ import React, { useMemo, useState } from 'react';
 import { ThemeProvider } from 'styled-components';
 
 import { GridState } from '../shared/constants';
-import type { ProfileMap, Task } from '../shared/types';
+import type { ProfileMap, Story, Task } from '../shared/types';
 
 import { Layout } from './components/Layout';
 import { ErrorBoundary, Spinner } from './components/common';
 import { AbandonedGrid } from './grids/AbandonedGrid';
 import { BlockedGrid } from './grids/BlockedGrid';
 import { CompletedGrid } from './grids/CompletedGrid';
+import { CopilotKickoffGrid } from './grids/CopilotKickoffGrid';
+import { ErrorGrid } from './grids/ErrorGrid';
 import { NonHitlGrid } from './grids/NonHitlGrid';
 import { ProfileAssignmentGrid } from './grids/ProfileAssignmentGrid';
 import { ReviewGrid } from './grids/ReviewGrid';
+import { StoryPlanningGrid } from './grids/StoryPlanningGrid';
 import { TaskExecutionGrid } from './grids/TaskExecutionGrid';
 import { GlobalStyles } from './styles/global';
 import { theme } from './styles/theme';
@@ -76,6 +79,12 @@ function AppContent() {
   });
   const profilesQuery = trpc.profiles.useQuery();
 
+  // Fetch unplanned stories for the Story Planning grid (exclude blocked)
+  const storiesQuery = trpc.stories.useQuery({ planned: false, blocked: false }, { refetchInterval: 30_000 });
+
+  // Fetch blocked stories for the Blocked grid
+  const blockedStoriesQuery = trpc.stories.useQuery({ blocked: true }, { refetchInterval: 30_000 });
+
   const assignTaskProfileMutation = trpc.assignTaskProfile.useMutation({
     onSuccess: () => {
       utils.tasks.invalidate();
@@ -90,15 +99,19 @@ function AppContent() {
 
   const tasks = useMemo(() => tasksQuery.data ?? [], [tasksQuery.data]);
   const profiles = useMemo(() => profilesQuery.data ?? ({} as ProfileMap), [profilesQuery.data]);
+  const stories = useMemo(() => (storiesQuery.data ?? []) as Story[], [storiesQuery.data]);
+  const blockedStories = useMemo(() => (blockedStoriesQuery.data ?? []) as Story[], [blockedStoriesQuery.data]);
   const tasksByState = useMemo(() => {
     const grouped: Record<string, Task[]> = {
       [GridState.PROFILE_ASSIGNMENT]: [],
+      [GridState.COPILOT_KICKOFF]: [],
       [GridState.TASK_EXECUTION]: [],
       [GridState.PR_REVIEW]: [],
       [GridState.COMPLETED]: [],
       [GridState.BLOCKED]: [],
       [GridState.ABANDONED]: [],
       [GridState.NON_HITL]: [],
+      [GridState.ERROR]: [],
     };
     for (const task of tasks) {
       if (grouped[task.state]) {
@@ -108,8 +121,8 @@ function AppContent() {
     return grouped;
   }, [tasks]);
 
-  const handleAssignProfile = (taskId: number, profileKey: string, skipCopilot: boolean, model: string, validateFe: boolean) => {
-    assignTaskProfileMutation.mutate({ taskId, profileKey, skipCopilot, model, validateFe });
+  const handleAssignProfile = (taskId: number, profileKey: string, skipCopilot: boolean, model: string) => {
+    assignTaskProfileMutation.mutate({ taskId, profileKey, skipCopilot, model });
   };
 
   const handleMarkNonHitl = (taskId: number) => {
@@ -123,16 +136,19 @@ function AppContent() {
 
   return (
     <>
+      <StoryPlanningGrid stories={stories} profiles={profiles} />
       <ProfileAssignmentGrid
         tasks={tasksByState[GridState.PROFILE_ASSIGNMENT]}
         profiles={profiles}
         onAssignProfile={handleAssignProfile}
         onMarkNonHitl={handleMarkNonHitl}
       />
+      <CopilotKickoffGrid tasks={tasksByState[GridState.COPILOT_KICKOFF]} />
       <TaskExecutionGrid tasks={tasksByState[GridState.TASK_EXECUTION]} profiles={profiles} />
       <ReviewGrid tasks={tasksByState[GridState.PR_REVIEW]} profiles={profiles} />
+      <ErrorGrid tasks={tasksByState[GridState.ERROR]} />
       <CompletedGrid tasks={tasksByState[GridState.COMPLETED]} />
-      <BlockedGrid tasks={tasksByState[GridState.BLOCKED]} />
+      <BlockedGrid tasks={tasksByState[GridState.BLOCKED]} blockedStories={blockedStories} />
       <AbandonedGrid tasks={tasksByState[GridState.ABANDONED]} />
       <NonHitlGrid tasks={tasksByState[GridState.NON_HITL]} />
     </>

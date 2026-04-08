@@ -291,6 +291,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
   const updateStatusQuery = trpc.updateStatus.useQuery(undefined, { refetchInterval: 30_000 });
   const saveMutation = trpc.saveSettings.useMutation();
   const updateCronMutation = trpc.updateCronState.useMutation();
+  const syncStatesMutation = trpc.syncStates.useMutation();
   const checkUpdatesMutation = trpc.checkForUpdates.useMutation();
   const installUpdateMutation = trpc.installUpdate.useMutation();
 
@@ -501,6 +502,31 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                         <ToggleLabel>{label}</ToggleLabel>
                       </FieldRow>
                     ))}
+                </FieldGroup>
+              </Section>
+              <Section>
+                <SectionTitle>State Reconciliation</SectionTitle>
+                <FieldGroup>
+                  <StatusText>Check all grid items against Azure DevOps and move them to their correct grids.</StatusText>
+                  <FieldRow>
+                    <Button
+                      onClick={() => {
+                        syncStatesMutation.mutate(undefined, {
+                          onSuccess: (result) => {
+                            setSaveMessage(
+                              `Synced: ${result.tasksUpdated} task(s) and ${result.storiesUpdated} story(ies) updated`,
+                            );
+                          },
+                          onError: (err) => {
+                            setSaveMessage(`Error: ${err.message}`);
+                          },
+                        });
+                      }}
+                      disabled={syncStatesMutation.isPending}
+                    >
+                      {syncStatesMutation.isPending ? 'Syncing...' : 'Sync States'}
+                    </Button>
+                  </FieldRow>
                 </FieldGroup>
               </Section>
             </>

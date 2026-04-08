@@ -26,6 +26,10 @@ vi.mock('../logger', () => ({
   }),
 }));
 
+vi.mock('./index', () => ({
+  recordTaskError: vi.fn(),
+}));
+
 const mockDb = {
   task: {
     findMany: vi.fn().mockResolvedValue([]),
@@ -147,7 +151,7 @@ describe('runTaskExecutionStep', () => {
     expect(watchSignals).not.toHaveBeenCalled();
   });
 
-  it('continues with other tasks when spawnSession fails', async () => {
+  it('moves task to ERROR state when spawnSession fails, continues with other tasks', async () => {
     const task1 = {
       ...makeTask({
         id: 1001,
@@ -180,8 +184,17 @@ describe('runTaskExecutionStep', () => {
 
     await runTaskExecutionStep();
 
-    // First task failed, second should succeed
-    expect(mockDb.task.update).toHaveBeenCalledTimes(1);
+    // First task should be moved to ERROR state
+    expect(mockDb.task.update).toHaveBeenCalledWith({
+      where: { id: 1001 },
+      data: {
+        state: GridState.ERROR,
+        previousState: GridState.COPILOT_KICKOFF,
+        disabled: false,
+      },
+    });
+
+    // Second task should succeed normally
     expect(mockDb.task.update).toHaveBeenCalledWith({
       where: { id: 1002 },
       data: { sessionId: 'session-2' },
@@ -235,7 +248,7 @@ describe('runTaskExecutionStep', () => {
 
       expect(mockDb.task.update).toHaveBeenCalledWith({
         where: { id: 1001 },
-        data: { disabled: false },
+        data: { state: GridState.TASK_EXECUTION, disabled: false },
       });
     });
 
@@ -262,7 +275,7 @@ describe('runTaskExecutionStep', () => {
 
       expect(mockDb.task.update).toHaveBeenCalledWith({
         where: { id: 1001 },
-        data: { disabled: false },
+        data: { state: GridState.TASK_EXECUTION, disabled: false },
       });
     });
 

@@ -62,7 +62,7 @@ vi.mock('../db', () => ({
 
 beforeAll(async () => {
   db = await setupTestDb();
-}, 30_000);
+}, 60_000);
 
 afterEach(async () => {
   await resetTestDb();

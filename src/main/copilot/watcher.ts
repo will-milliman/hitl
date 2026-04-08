@@ -11,15 +11,19 @@
  * 4. Updates the Task disabled state in the database
  *
  * - SESSION_ACTIVE (postToolUse) → agent is working → disabled = true
- * - SESSION_END (sessionEnd) → session finished → disabled = false (awaiting human)
+ * - SESSION_END (sessionEnd):
+ *   - COPILOT_KICKOFF → move to TASK_EXECUTION (disabled = false)
+ *   - TASK_EXECUTION/PR_REVIEW → disabled = false (awaiting human)
  *
  * Idle detection:
  * When a SESSION_ACTIVE signal is received, an idle timer starts. If no new
  * SESSION_ACTIVE signal arrives within IDLE_TIMEOUT_MS, the session is presumed
  * idle (copilot is waiting for user input) and disabled is set to false.
+ * For COPILOT_KICKOFF tasks, idle also triggers transition to TASK_EXECUTION.
  */
 import { existsSync, mkdirSync, watch } from 'fs';
 
+import { GridState } from '../../shared/constants';
 import { getDb } from '../db';
 
 import { SIGNAL_FILES, getSignalDir, readLatestSignal } from './session';
@@ -128,14 +132,19 @@ export function unwatchAll(): void {
 
 /**
  * Processes the latest signal for a worktree and updates the database.
+ *
+ * For tasks in COPILOT_KICKOFF state, SESSION_END and idle signals
+ * trigger a transition to TASK_EXECUTION. For tasks already in
+ * TASK_EXECUTION or PR_REVIEW, signals only toggle the disabled flag.
  */
 async function processSignal(worktreePath: string, taskId: number): Promise<void> {
   const signal = readLatestSignal(worktreePath);
   if (!signal) return;
 
   const db = getDb();
+  const task = await db.task.findUnique({ where: { id: taskId }, select: { state: true } });
 
-  console.log(`[watcher] Signal for task #${taskId}: ${signal.signal}`);
+  console.log(`[watcher] Signal for task #${taskId}: ${signal.signal} (state: ${task?.state})`);
 
   switch (signal.signal) {
     case SIGNAL_FILES.SESSION_ACTIVE:
@@ -149,25 +158,54 @@ async function processSignal(worktreePath: string, taskId: number): Promise<void
       resetIdleTimer(worktreePath, taskId);
       break;
 
-    case SIGNAL_FILES.SESSION_END:
-      // Session ended — agent is done, enable for human review.
-      // Task stays in its current state (TASK_EXECUTION or PR_REVIEW).
-      // The cron step handles state transitions (draft PR creation, etc.).
-      await db.task.update({
-        where: { id: taskId },
-        data: { disabled: false },
-      });
+    case SIGNAL_FILES.SESSION_END: {
+      // Session ended — agent is done
+      if (task?.state === GridState.COPILOT_KICKOFF) {
+        // Copilot kickoff complete → transition to TASK_EXECUTION for human work
+        await db.task.update({
+          where: { id: taskId },
+          data: { state: GridState.TASK_EXECUTION, disabled: false },
+        });
+        console.log(`[watcher] Task #${taskId}: copilot kickoff complete, moved to TASK_EXECUTION`);
+      } else {
+        // Task in TASK_EXECUTION or PR_REVIEW — just enable for human review
+        // Update lastAgentResponse for TASK_EXECUTION sort ordering
+        const data: Record<string, unknown> = { disabled: false };
+        if (task?.state === GridState.TASK_EXECUTION) {
+          data.lastAgentResponse = new Date();
+        }
+        await db.task.update({
+          where: { id: taskId },
+          data,
+        });
+      }
       // Stop watching — session is over
       unwatchSignals(worktreePath);
       break;
+    }
 
-    case SIGNAL_FILES.SESSION_IDLE:
-      // Session is idle — waiting for human input, enable row
-      await db.task.update({
-        where: { id: taskId },
-        data: { disabled: false },
-      });
+    case SIGNAL_FILES.SESSION_IDLE: {
+      // Session is idle — waiting for human input
+      if (task?.state === GridState.COPILOT_KICKOFF) {
+        // Copilot kickoff idle → treat same as session end, move to TASK_EXECUTION
+        await db.task.update({
+          where: { id: taskId },
+          data: { state: GridState.TASK_EXECUTION, disabled: false },
+        });
+        console.log(`[watcher] Task #${taskId}: copilot kickoff idle, moved to TASK_EXECUTION`);
+      } else {
+        // Update lastAgentResponse for TASK_EXECUTION sort ordering
+        const data: Record<string, unknown> = { disabled: false };
+        if (task?.state === GridState.TASK_EXECUTION) {
+          data.lastAgentResponse = new Date();
+        }
+        await db.task.update({
+          where: { id: taskId },
+          data,
+        });
+      }
       break;
+    }
 
     default:
       console.log(`[watcher] Unknown signal: ${signal.signal}`);
@@ -194,10 +232,26 @@ function resetIdleTimer(worktreePath: string, taskId: number): void {
       console.log(`[watcher] Idle timeout for task #${taskId} — marking as idle`);
       try {
         const db = getDb();
-        await db.task.update({
-          where: { id: taskId },
-          data: { disabled: false },
-        });
+        const task = await db.task.findUnique({ where: { id: taskId }, select: { state: true } });
+
+        if (task?.state === GridState.COPILOT_KICKOFF) {
+          // Copilot kickoff idle → move to TASK_EXECUTION
+          await db.task.update({
+            where: { id: taskId },
+            data: { state: GridState.TASK_EXECUTION, disabled: false },
+          });
+          console.log(`[watcher] Task #${taskId}: idle timeout during kickoff, moved to TASK_EXECUTION`);
+        } else {
+          // Update lastAgentResponse for TASK_EXECUTION sort ordering
+          const data: Record<string, unknown> = { disabled: false };
+          if (task?.state === GridState.TASK_EXECUTION) {
+            data.lastAgentResponse = new Date();
+          }
+          await db.task.update({
+            where: { id: taskId },
+            data,
+          });
+        }
       } catch (err) {
         console.error(`[watcher] Failed to mark task #${taskId} as idle:`, err);
       }

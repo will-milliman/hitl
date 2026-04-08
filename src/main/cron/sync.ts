@@ -1,21 +1,25 @@
 /**
  * Azure DevOps work item sync.
  *
- * Queries Azure DevOps for tasks and bugs in the current sprint assigned to
- * the current user, then upserts them into the local database.
+ * Queries Azure DevOps for stories, tasks and bugs in the current sprint
+ * assigned to the current user, then upserts them into the local database.
  *
  * Strategy:
- * 1. Query for all tasks/bugs in the current sprint (state: New or Active) assigned to @Me
- * 2. Fetch full work item details
- * 3. Fetch parent story info for context (lightweight)
- * 4. Upsert stories as lightweight parent references
- * 5. Upsert tasks into the DB — new tasks start in PROFILE_ASSIGNMENT
- * 6. Handle blocked tasks (Azure state = Blocked)
- * 7. Remove active tasks that no longer appear in the sprint query
- * 8. Remove completed/abandoned tasks that were deleted from Azure
+ * 1a. Query for all tasks/bugs in the current sprint (state: New or Active) assigned to @Me
+ * 1b. Query for all user stories in the current sprint assigned to @Me (for Story Planning)
+ * 2a. Upsert stories from sprint query (unplanned by default → Story Planning grid)
+ * 2b. Fetch full task details
+ * 3. Collect parent story IDs from tasks
+ * 4. Fetch parent stories for context (lightweight)
+ * 5. Upsert parent stories as lightweight references
+ * 6. Upsert tasks into the DB — new tasks start in PROFILE_ASSIGNMENT
+ * 7. Handle blocked tasks (Azure state = Blocked)
+ * 8. Remove active tasks that no longer appear in the sprint query
+ * 9. Remove completed/abandoned tasks that were deleted from Azure
+ * 10. Remove stories no longer in the sprint (unless they have child tasks)
  */
 import { GridState } from '../../shared/constants';
-import { type WorkItem, buildSprintTasksQuery, getWorkItems, queryWiql, workItemUrl } from '../azure';
+import { type WorkItem, buildSprintStoriesQuery, buildSprintTasksQuery, getWorkItems, queryWiql, workItemUrl } from '../azure';
 import { getDb } from '../db';
 import { createLogger } from '../logger';
 
@@ -51,6 +55,54 @@ export async function syncWorkItems(): Promise<void> {
   // Build a set of Azure task IDs for deletion detection
   const azureTaskIdSet = new Set(taskIds);
 
+  // 1b. Query for user stories in current sprint (for Story Planning)
+  const storyQuery = buildSprintStoriesQuery();
+  const storyWiqlResult = await queryWiql(config, storyQuery);
+  const storyIds = storyWiqlResult.workItems.map((wi) => wi.id);
+
+  logger.info(`Found ${storyIds.length} user stories in current sprint`);
+
+  // Build a set of Azure story IDs for deletion detection
+  const azureStoryIdSet = new Set(storyIds);
+
+  // 2a. Fetch full story details (for Story Planning grid)
+  let sprintStories: WorkItem[] = [];
+  if (storyIds.length > 0) {
+    sprintStories = await getWorkItems(config, storyIds, STORY_FIELDS);
+  }
+
+  // 2b. Upsert stories from sprint query (these go into Story Planning grid)
+  for (const story of sprintStories) {
+    const id = story.fields['System.Id'];
+    const title = story.fields['System.Title'];
+    const azureState = story.fields['System.State'];
+    const azureUrl = workItemUrl(config.org, config.project, id);
+    const isBlocked = azureState === 'Blocked';
+
+    const existing = await db.story.findUnique({ where: { id } });
+
+    if (existing) {
+      // Update title/azureUrl/blocked — don't overwrite planned flag
+      await db.story.upsert({
+        where: { id },
+        create: { id, title, azureUrl, blocked: isBlocked },
+        update: { title, azureUrl, blocked: isBlocked },
+      });
+
+      if (isBlocked && !existing.blocked) {
+        logger.info(`Story #${id} moved to BLOCKED (Azure state: ${azureState})`);
+      } else if (!isBlocked && existing.blocked) {
+        logger.info(`Story #${id} unblocked, returning to Story Planning`);
+      }
+    } else {
+      // New story — starts unplanned (shows in Story Planning grid unless blocked)
+      await db.story.create({
+        data: { id, title, azureUrl, planned: false, blocked: isBlocked },
+      });
+      logger.info(`New story: #${id} "${title}" (${isBlocked ? 'blocked' : 'unplanned'})`);
+    }
+  }
+
   // 2. Fetch full task details (if any)
   let tasks: WorkItem[] = [];
   if (taskIds.length > 0) {
@@ -73,7 +125,7 @@ export async function syncWorkItems(): Promise<void> {
     logger.info(`Fetched ${parentStories.length} parent stories`);
   }
 
-  // 5. Upsert stories as lightweight references
+  // 5. Upsert stories as lightweight references (parent stories of tasks that weren't in sprint query)
   for (const story of parentStories) {
     const id = story.fields['System.Id'];
     const title = story.fields['System.Title'];
@@ -81,8 +133,8 @@ export async function syncWorkItems(): Promise<void> {
 
     await db.story.upsert({
       where: { id },
-      create: { id, title, azureUrl },
-      update: { title, azureUrl },
+      create: { id, title, azureUrl, planned: true }, // Parent-only stories default to planned
+      update: { title, azureUrl }, // Don't overwrite planned flag
     });
   }
 
@@ -213,5 +265,23 @@ export async function syncWorkItems(): Promise<void> {
     }
   }
 
-  logger.info(`Synced ${parentStories.length} stories, ${tasks.length} tasks/bugs`);
+  logger.info(`Synced ${parentStories.length + sprintStories.length} stories, ${tasks.length} tasks/bugs`);
+
+  // 10. Remove stories that are no longer in the sprint and have no child tasks
+  const localStories = await db.story.findMany({
+    select: { id: true },
+  });
+
+  const removedStoryIds = localStories.filter((s) => !azureStoryIdSet.has(s.id) && !parentStoryIds.has(s.id)).map((s) => s.id);
+
+  if (removedStoryIds.length > 0) {
+    // Only remove stories that have no child tasks in the DB
+    for (const storyId of removedStoryIds) {
+      const childCount = await db.task.count({ where: { storyId } });
+      if (childCount === 0) {
+        await db.story.delete({ where: { id: storyId } });
+        logger.info(`Removed story #${storyId} (no longer in sprint and no child tasks)`);
+      }
+    }
+  }
 }

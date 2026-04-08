@@ -19,7 +19,9 @@ interface ColumnMeta {
 }
 
 const Section = styled.div`
-  margin-bottom: ${({ theme }) => theme.spacing.md};
+  &:not(:last-child) {
+    margin-bottom: ${({ theme }) => theme.spacing.md};
+  }
 `;
 
 const Header = styled.button`

@@ -67,7 +67,7 @@ vi.mock('../db', () => ({
 
 beforeAll(async () => {
   db = await setupTestDb();
-}, 30_000);
+}, 60_000);
 
 afterEach(async () => {
   await resetTestDb();
@@ -82,13 +82,13 @@ afterAll(async () => {
 
 describe('setupTaskWorktrees (integration)', () => {
   it('creates worktree and saves path for eligible task', async () => {
-    // Seed a task in TASK_EXECUTION with profile but no worktree
+    // Seed a task in COPILOT_KICKOFF with profile but no worktree
     await db.task.create({
       data: {
         id: 7001,
         title: 'Eligible task',
         azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/7001',
-        state: GridState.TASK_EXECUTION,
+        state: GridState.COPILOT_KICKOFF,
         profileKey: 'integrate',
         worktreePath: null,
         disabled: true,
@@ -113,7 +113,7 @@ describe('setupTaskWorktrees (integration)', () => {
         id: 7002,
         title: 'Already has worktree',
         azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/7002',
-        state: GridState.TASK_EXECUTION,
+        state: GridState.COPILOT_KICKOFF,
         profileKey: 'integrate',
         worktreePath: 'C:/existing/worktree',
         disabled: true,
@@ -131,7 +131,7 @@ describe('setupTaskWorktrees (integration)', () => {
         id: 7003,
         title: 'No profile',
         azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/7003',
-        state: GridState.TASK_EXECUTION,
+        state: GridState.COPILOT_KICKOFF,
         profileKey: null,
         worktreePath: null,
         disabled: true,
@@ -149,7 +149,7 @@ describe('setupTaskWorktrees (integration)', () => {
         id: 7004,
         title: 'Not disabled',
         azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/7004',
-        state: GridState.TASK_EXECUTION,
+        state: GridState.COPILOT_KICKOFF,
         profileKey: 'integrate',
         worktreePath: null,
         disabled: false,
@@ -161,7 +161,7 @@ describe('setupTaskWorktrees (integration)', () => {
     expect(createWorktree).not.toHaveBeenCalled();
   });
 
-  it('skips tasks not in TASK_EXECUTION state', async () => {
+  it('skips tasks not in COPILOT_KICKOFF state', async () => {
     await db.task.create({
       data: {
         id: 7005,
@@ -185,7 +185,7 @@ describe('setupTaskWorktrees (integration)', () => {
         id: 7006,
         title: 'Unknown profile',
         azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/7006',
-        state: GridState.TASK_EXECUTION,
+        state: GridState.COPILOT_KICKOFF,
         profileKey: 'nonexistent',
         worktreePath: null,
         disabled: true,
@@ -208,7 +208,7 @@ describe('setupTaskWorktrees (integration)', () => {
         id: 7010,
         title: 'Task A',
         azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/7010',
-        state: GridState.TASK_EXECUTION,
+        state: GridState.COPILOT_KICKOFF,
         profileKey: 'integrate',
         worktreePath: null,
         disabled: true,
@@ -219,7 +219,7 @@ describe('setupTaskWorktrees (integration)', () => {
         id: 7011,
         title: 'Task B',
         azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/7011',
-        state: GridState.TASK_EXECUTION,
+        state: GridState.COPILOT_KICKOFF,
         profileKey: 'integrate',
         worktreePath: null,
         disabled: true,
@@ -244,7 +244,7 @@ describe('setupTaskWorktrees (integration)', () => {
         id: 7020,
         title: 'Will fail',
         azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/7020',
-        state: GridState.TASK_EXECUTION,
+        state: GridState.COPILOT_KICKOFF,
         profileKey: 'integrate',
         worktreePath: null,
         disabled: true,
@@ -255,7 +255,7 @@ describe('setupTaskWorktrees (integration)', () => {
         id: 7021,
         title: 'Will succeed',
         azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/7021',
-        state: GridState.TASK_EXECUTION,
+        state: GridState.COPILOT_KICKOFF,
         profileKey: 'integrate',
         worktreePath: null,
         disabled: true,
@@ -285,7 +285,7 @@ describe('setupTaskWorktrees (integration)', () => {
         id: 7030,
         title: 'Needs worktree',
         azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/7030',
-        state: GridState.TASK_EXECUTION,
+        state: GridState.COPILOT_KICKOFF,
         profileKey: 'integrate',
         worktreePath: null,
         disabled: true,
@@ -324,7 +324,7 @@ describe('setupTaskWorktrees (integration)', () => {
         id: 7031,
         title: 'Repurpose will fail',
         azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/7031',
-        state: GridState.TASK_EXECUTION,
+        state: GridState.COPILOT_KICKOFF,
         profileKey: 'integrate',
         worktreePath: null,
         disabled: true,
@@ -364,7 +364,7 @@ describe('setupTaskWorktrees (integration)', () => {
         id: 7040,
         title: 'Task with setup',
         azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/7040',
-        state: GridState.TASK_EXECUTION,
+        state: GridState.COPILOT_KICKOFF,
         profileKey: 'integrate',
         worktreePath: null,
         disabled: true,
@@ -395,7 +395,7 @@ describe('setupTaskWorktrees (integration)', () => {
         id: 7041,
         title: 'Task without setup',
         azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/7041',
-        state: GridState.TASK_EXECUTION,
+        state: GridState.COPILOT_KICKOFF,
         profileKey: 'integrate',
         worktreePath: null,
         disabled: true,

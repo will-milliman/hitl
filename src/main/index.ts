@@ -65,6 +65,13 @@ async function createWindow(): Promise<void> {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
   }
 
+  // Allow F12 to toggle DevTools (menu is removed so the default shortcut is gone)
+  mainWindow.webContents.on('before-input-event', (_event, input) => {
+    if (input.key === 'F12' && input.type === 'keyDown') {
+      mainWindow?.webContents.toggleDevTools();
+    }
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
