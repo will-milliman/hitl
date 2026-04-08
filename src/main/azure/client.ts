@@ -212,6 +212,12 @@ export async function updateWorkItemState(config: AzureConfig, workItemId: numbe
  *
  * This uses a flat query that finds work items first (since they have the
  * state filter), then we look up their parent stories.
+ *
+ * Checks both the current sprint AND the next sprint to handle sprint
+ * transitions gracefully — when a sprint ends, Azure DevOps moves all
+ * incomplete items to the next sprint, and @CurrentIteration flips over.
+ * Without checking both, items could be momentarily invisible and get
+ * deleted from the local DB.
  */
 export function buildSprintTasksQuery(): string {
   return `
@@ -219,7 +225,10 @@ export function buildSprintTasksQuery(): string {
     FROM WorkItems
     WHERE
       [System.WorkItemType] IN ('Task', 'Bug')
-      AND [System.IterationPath] = @CurrentIteration
+      AND (
+        [System.IterationPath] = @CurrentIteration
+        OR [System.IterationPath] = @CurrentIteration + 1
+      )
       AND [System.State] IN ('New', 'Active')
       AND [System.AssignedTo] = @Me
     ORDER BY [System.Id]
@@ -229,6 +238,9 @@ export function buildSprintTasksQuery(): string {
 /**
  * WIQL query to find user stories in the current sprint assigned to the current user.
  * We fetch stories directly as well, to catch stories without tasks yet.
+ *
+ * Checks both the current sprint AND the next sprint to handle sprint
+ * transitions gracefully — see buildSprintTasksQuery for rationale.
  */
 export function buildSprintStoriesQuery(): string {
   return `
@@ -236,7 +248,10 @@ export function buildSprintStoriesQuery(): string {
     FROM WorkItems
     WHERE
       [System.WorkItemType] = 'User Story'
-      AND [System.IterationPath] = @CurrentIteration
+      AND (
+        [System.IterationPath] = @CurrentIteration
+        OR [System.IterationPath] = @CurrentIteration + 1
+      )
       AND [System.AssignedTo] = @Me
     ORDER BY [System.Id]
   `.trim();

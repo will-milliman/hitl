@@ -1,12 +1,17 @@
 /**
  * Azure DevOps work item sync.
  *
- * Queries Azure DevOps for stories, tasks and bugs in the current sprint
- * assigned to the current user, then upserts them into the local database.
+ * Queries Azure DevOps for stories, tasks and bugs in the current AND next
+ * sprint assigned to the current user, then upserts them into the local database.
+ *
+ * Checking both sprints handles the transition when a sprint ends: Azure DevOps
+ * moves all incomplete items to the next sprint, and @CurrentIteration flips.
+ * Without this, items would disappear from the query during the transition and
+ * get removed from the local DB.
  *
  * Strategy:
- * 1a. Query for all tasks/bugs in the current sprint (state: New or Active) assigned to @Me
- * 1b. Query for all user stories in the current sprint assigned to @Me (for Story Planning)
+ * 1a. Query for all tasks/bugs in current+next sprint (state: New or Active) assigned to @Me
+ * 1b. Query for all user stories in current+next sprint assigned to @Me (for Story Planning)
  * 2a. Upsert stories from sprint query (unplanned by default → Story Planning grid)
  * 2b. Fetch full task details
  * 3. Collect parent story IDs from tasks
@@ -45,22 +50,22 @@ export async function syncWorkItems(): Promise<void> {
 
   const db = getDb();
 
-  // 1. Query for tasks/bugs in current sprint
+  // 1. Query for tasks/bugs in current + next sprint
   const taskQuery = buildSprintTasksQuery();
   const taskWiqlResult = await queryWiql(config, taskQuery);
   const taskIds = taskWiqlResult.workItems.map((wi) => wi.id);
 
-  logger.info(`Found ${taskIds.length} tasks/bugs in current sprint`);
+  logger.info(`Found ${taskIds.length} tasks/bugs in current+next sprint`);
 
   // Build a set of Azure task IDs for deletion detection
   const azureTaskIdSet = new Set(taskIds);
 
-  // 1b. Query for user stories in current sprint (for Story Planning)
+  // 1b. Query for user stories in current + next sprint (for Story Planning)
   const storyQuery = buildSprintStoriesQuery();
   const storyWiqlResult = await queryWiql(config, storyQuery);
   const storyIds = storyWiqlResult.workItems.map((wi) => wi.id);
 
-  logger.info(`Found ${storyIds.length} user stories in current sprint`);
+  logger.info(`Found ${storyIds.length} user stories in current+next sprint`);
 
   // Build a set of Azure story IDs for deletion detection
   const azureStoryIdSet = new Set(storyIds);
