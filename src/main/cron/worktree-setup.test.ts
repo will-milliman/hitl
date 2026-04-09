@@ -190,6 +190,7 @@ describe('setupTaskWorktrees', () => {
         state: GridState.COPILOT_KICKOFF,
         profileKey: { not: null },
         worktreePath: null,
+        removedFromSprint: false,
         OR: [{ disabled: true }, { skipCopilot: true }],
       },
     });

@@ -44,6 +44,7 @@ export async function reconcileStates(): Promise<{ tasksUpdated: number; stories
   const activeTasks = await db.task.findMany({
     where: {
       state: { notIn: [GridState.COMPLETED, GridState.ABANDONED, GridState.NON_HITL, GridState.ERROR] },
+      removedFromSprint: false,
     },
     select: { id: true, state: true },
   });

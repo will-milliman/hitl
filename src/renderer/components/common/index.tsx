@@ -122,12 +122,13 @@ interface ProfileSelectProps {
   profiles: string[];
   value: string | null;
   onChange: (value: string) => void;
+  placeholder?: string;
 }
 
-export function ProfileSelect({ profiles, value, onChange }: ProfileSelectProps) {
+export function ProfileSelect({ profiles, value, onChange, placeholder = '-- Select Profile --' }: ProfileSelectProps) {
   return (
     <StyledSelect value={value || ''} onChange={(e) => onChange(e.target.value)}>
-      <option value="">-- Select Profile --</option>
+      <option value="">{placeholder}</option>
       {profiles.map((p) => (
         <option key={p} value={p}>
           {p}

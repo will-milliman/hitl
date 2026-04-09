@@ -76,7 +76,7 @@ export const appRouter = t.router({
     )
     .query(async ({ input }) => {
       const db = getDb();
-      const where: Record<string, unknown> = {};
+      const where: Record<string, unknown> = { removedFromSprint: false };
       if (input?.state) where.state = input.state;
       if (input?.storyId) where.storyId = input.storyId;
       return db.task.findMany({

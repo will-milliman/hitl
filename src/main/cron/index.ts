@@ -7,7 +7,7 @@
  * 3. Executes the Azure DevOps sync step (if enabled)
  * 4. Sets up worktrees for newly profile-assigned tasks (if enabled)
  * 5. Spawns copilot task execution sessions (if enabled)
- * 6. Checks task PRs for comments/merges (if enabled)
+ * 6. Checks task PRs for draft status/readiness/merges (if pr-check enabled)
  *
  * Each step is isolated — a failure in one step does not prevent
  * subsequent steps from running. Errors are logged and tracked.
@@ -167,7 +167,7 @@ async function tick(): Promise<void> {
       if (err) cronStatus.stepErrors['taskExecution'] = err;
     }
 
-    // Step 4: PR check step — create task PRs, check comments/merges
+    // Step 4: PR check step — check draft status, readiness, comments/merges
     if (flags.prCheckEnabled) {
       const err = await runStep('PR check', runPrCheckStep);
       if (err) cronStatus.stepErrors['prCheck'] = err;

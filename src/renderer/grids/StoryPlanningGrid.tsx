@@ -21,6 +21,9 @@ export function StoryPlanningGrid({ stories, profiles }: StoryPlanningGridProps)
     onSuccess: () => {
       utils.stories.invalidate();
     },
+    onError: (err) => {
+      window.alert(err.message);
+    },
   });
 
   const [selectedProfileMap, setSelectedProfileMap] = React.useState<Record<number, string>>({});
@@ -58,6 +61,7 @@ export function StoryPlanningGrid({ stories, profiles }: StoryPlanningGridProps)
             <ProfileSelect
               profiles={profileKeys}
               value={selectedProfile}
+              placeholder="-- Open IDE --"
               onChange={(value) => {
                 setSelectedProfileMap((prev) => ({ ...prev, [storyId]: value }));
                 const profile = value ? profiles[value] : undefined;

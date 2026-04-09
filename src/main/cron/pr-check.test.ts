@@ -1,15 +1,15 @@
 /**
  * Unit tests for the PR check cron step.
  *
- * Tests runPrCheckStep() and its sub-steps: createDraftPRs,
- * checkDraftToReady, checkTaskPRMerges — with mocked DB
+ * Tests runPrCheckStep() and its sub-steps: checkDraftToReady,
+ * updatePrReadiness, checkTaskPRMerges — with mocked DB
  * and external modules.
  */
 import { exec, execFile } from 'child_process';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GridState } from '../../shared/constants';
-import { createPullRequest, findPullRequest, getPullRequestByUrl, isGhAuthenticated } from '../github';
+import { getPullRequestByUrl, isGhAuthenticated } from '../github';
 import { notifyTaskCompleted } from '../notifications';
 import { makePullRequest, makeTask } from '../test-utils/factories';
 
@@ -42,32 +42,15 @@ vi.mock('../db', () => ({
 
 vi.mock('../github', () => ({
   isGhAuthenticated: vi.fn().mockResolvedValue(true),
-  createPullRequest: vi.fn(),
-  findPullRequest: vi.fn().mockResolvedValue(null),
   getPullRequestByUrl: vi.fn(),
   isPrReadyToMerge: vi.fn().mockReturnValue(false),
-}));
-
-vi.mock('../worktree', () => ({
-  getBranchName: vi.fn((type: string, workItemId: number) => `${type}/${workItemId}`),
-  getCurrentBranch: vi.fn().mockResolvedValue('task/1001'),
-}));
-
-vi.mock('../settings', () => ({
-  loadProfiles: vi.fn().mockReturnValue({
-    integrate: {
-      repoPath: 'C:/repos/test-repo',
-      defaultBranch: 'main',
-      description: 'Test profile',
-    },
-  }),
 }));
 
 vi.mock('../notifications', () => ({
   notifyTaskCompleted: vi.fn(),
 }));
 
-// Mock child_process for pushBranch (execFile) and closeVirtualDesktop (exec)
+// Mock child_process for cleanupCompletedTask (execFile) and closeVirtualDesktop
 vi.mock('child_process', () => ({
   execFile: vi.fn((_cmd: string, _args: string[], _opts: unknown, cb: (...args: unknown[]) => void) => {
     cb(null, { stdout: '', stderr: '' });
@@ -112,94 +95,6 @@ describe('runPrCheckStep', () => {
     expect(mockDb.task.findMany).not.toHaveBeenCalled();
   });
 
-  describe('createDraftPRs sub-step', () => {
-    it('creates draft PR for task in TASK_EXECUTION with no prUrl', async () => {
-      const task = {
-        ...makeTask({
-          id: 1001,
-          state: GridState.TASK_EXECUTION,
-          profileKey: 'integrate',
-          worktreePath: 'C:/repos/test-wt',
-          sessionId: 'session-1',
-          prUrl: null,
-          disabled: false,
-        }),
-        story: { id: 90001, title: 'Test story' },
-      };
-
-      // createDraftPRs query
-      mockDb.task.findMany
-        .mockResolvedValueOnce([task]) // createDraftPRs
-        .mockResolvedValueOnce([]) // checkDraftToReady
-        .mockResolvedValueOnce([]) // updatePrReadiness
-        .mockResolvedValueOnce([]); // checkTaskPRMerges
-
-      vi.mocked(findPullRequest).mockResolvedValueOnce(null); // no existing PR
-      vi.mocked(createPullRequest).mockResolvedValueOnce(
-        makePullRequest({ number: 201, url: 'https://github.com/org/repo/pull/201', isDraft: true }),
-      );
-
-      await runPrCheckStep();
-
-      // Uses task title for PR title
-      expect(createPullRequest).toHaveBeenCalledWith(
-        'C:/repos/test-wt',
-        expect.objectContaining({
-          title: `Task #1001: ${task.title}`,
-          body: expect.stringContaining('AB#1001'),
-          head: 'task/1001',
-          base: 'main',
-          draft: true,
-        }),
-      );
-      expect(mockDb.task.update).toHaveBeenCalledWith({
-        where: { id: 1001 },
-        data: { prUrl: 'https://github.com/org/repo/pull/201' },
-      });
-    });
-
-    it('uses existing PR URL when PR already exists on GitHub', async () => {
-      const task = {
-        ...makeTask({
-          id: 1001,
-          state: GridState.TASK_EXECUTION,
-          profileKey: 'integrate',
-          worktreePath: 'C:/repos/test-wt',
-          sessionId: 'session-1',
-          prUrl: null,
-          disabled: false,
-        }),
-        story: null,
-      };
-
-      mockDb.task.findMany
-        .mockResolvedValueOnce([task])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([]);
-
-      vi.mocked(findPullRequest).mockResolvedValueOnce(makePullRequest({ url: 'https://github.com/org/repo/pull/99' }));
-
-      await runPrCheckStep();
-
-      // Should NOT create a new PR
-      expect(createPullRequest).not.toHaveBeenCalled();
-      // Should save the existing PR URL
-      expect(mockDb.task.update).toHaveBeenCalledWith({
-        where: { id: 1001 },
-        data: { prUrl: 'https://github.com/org/repo/pull/99' },
-      });
-    });
-
-    it('does nothing when no tasks need draft PRs', async () => {
-      mockDb.task.findMany.mockResolvedValue([]);
-
-      await runPrCheckStep();
-
-      expect(createPullRequest).not.toHaveBeenCalled();
-    });
-  });
-
   describe('checkDraftToReady sub-step', () => {
     it('moves task to PR_REVIEW when PR is no longer a draft', async () => {
       const task = makeTask({
@@ -210,7 +105,6 @@ describe('runPrCheckStep', () => {
       });
 
       mockDb.task.findMany
-        .mockResolvedValueOnce([]) // createDraftPRs
         .mockResolvedValueOnce([task]) // checkDraftToReady
         .mockResolvedValueOnce([]) // updatePrReadiness
         .mockResolvedValueOnce([]); // checkTaskPRMerges
@@ -234,10 +128,9 @@ describe('runPrCheckStep', () => {
       });
 
       mockDb.task.findMany
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([task])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([]);
+        .mockResolvedValueOnce([task]) // checkDraftToReady
+        .mockResolvedValueOnce([]) // updatePrReadiness
+        .mockResolvedValueOnce([]); // checkTaskPRMerges
 
       vi.mocked(getPullRequestByUrl).mockResolvedValueOnce(makePullRequest({ isDraft: true }));
 
@@ -255,10 +148,9 @@ describe('runPrCheckStep', () => {
       });
 
       mockDb.task.findMany
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([task])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([]);
+        .mockResolvedValueOnce([task]) // checkDraftToReady
+        .mockResolvedValueOnce([]) // updatePrReadiness
+        .mockResolvedValueOnce([]); // checkTaskPRMerges
 
       vi.mocked(getPullRequestByUrl).mockRejectedValueOnce(new Error('gh CLI timeout'));
 
@@ -278,7 +170,6 @@ describe('runPrCheckStep', () => {
       });
 
       mockDb.task.findMany
-        .mockResolvedValueOnce([]) // createDraftPRs
         .mockResolvedValueOnce([]) // checkDraftToReady
         .mockResolvedValueOnce([]) // updatePrReadiness
         .mockResolvedValueOnce([task]); // checkTaskPRMerges
@@ -332,10 +223,9 @@ describe('runPrCheckStep', () => {
       });
 
       mockDb.task.findMany
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([task]);
+        .mockResolvedValueOnce([]) // checkDraftToReady
+        .mockResolvedValueOnce([]) // updatePrReadiness
+        .mockResolvedValueOnce([task]); // checkTaskPRMerges
 
       vi.mocked(getPullRequestByUrl).mockResolvedValueOnce(makePullRequest({ state: 'OPEN' }));
 
@@ -355,7 +245,6 @@ describe('runPrCheckStep', () => {
       });
 
       mockDb.task.findMany
-        .mockResolvedValueOnce([]) // createDraftPRs
         .mockResolvedValueOnce([]) // checkDraftToReady
         .mockResolvedValueOnce([]) // updatePrReadiness
         .mockResolvedValueOnce([task]); // checkTaskPRMerges
@@ -400,10 +289,9 @@ describe('runPrCheckStep', () => {
       });
 
       mockDb.task.findMany
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([task]);
+        .mockResolvedValueOnce([]) // checkDraftToReady
+        .mockResolvedValueOnce([]) // updatePrReadiness
+        .mockResolvedValueOnce([task]); // checkTaskPRMerges
 
       vi.mocked(getPullRequestByUrl).mockRejectedValueOnce(new Error('gh CLI timeout'));
 
@@ -421,10 +309,9 @@ describe('runPrCheckStep', () => {
       });
 
       mockDb.task.findMany
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([task]);
+        .mockResolvedValueOnce([]) // checkDraftToReady
+        .mockResolvedValueOnce([]) // updatePrReadiness
+        .mockResolvedValueOnce([task]); // checkTaskPRMerges
 
       vi.mocked(getPullRequestByUrl).mockResolvedValueOnce(makePullRequest({ state: 'MERGED' }));
 

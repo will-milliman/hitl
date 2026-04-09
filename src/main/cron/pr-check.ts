@@ -3,14 +3,12 @@
  *
  * Runs on each cron tick (gated by `prCheckEnabled` flag). Handles:
  *
- * 1. **Draft PR Creation**: For tasks in TASK_EXECUTION that are done
- *    (disabled=false, sessionId set) with no PR yet, pushes the task
- *    branch and creates a **draft** PR. The task stays in TASK_EXECUTION
- *    so the human can review and iterate via the copilot session.
- *
- * 2. **Draft → Ready Detection**: For tasks in TASK_EXECUTION that have
+ * 1. **Draft → Ready Detection**: For tasks in TASK_EXECUTION that have
  *    a draft PR, checks if the PR has been marked as ready for review.
  *    If no longer a draft, moves the task to PR_REVIEW.
+ *
+ * 2. **PR Readiness**: For tasks in PR_REVIEW, checks if the PR is ready
+ *    to merge (all checks pass, reviews approved).
  *
  * 3. **PR Merge/Close Detection + Cleanup**: For tasks in PR_REVIEW with a PR,
  *    checks if the PR has been merged or closed. If merged, moves the task to
@@ -20,152 +18,24 @@
  *    - Parks the worktree (clears DB fields so it can be reused)
  *    - Closes all windows on the task's virtual desktop and removes it
  *
+ * HITL never creates PRs — that is done externally by the developer.
+ *
  * All GitHub operations use the `gh` CLI (authenticated via `gh auth login`).
  */
-import { exec, execFile } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 
 import { GridState } from '../../shared/constants';
 import { getDb } from '../db';
-import { createPullRequest, findPullRequest, getPullRequestByUrl, isGhAuthenticated, isPrReadyToMerge } from '../github';
+import { getPullRequestByUrl, isGhAuthenticated, isPrReadyToMerge } from '../github';
 import { createLogger } from '../logger';
 import { notifyTaskCompleted } from '../notifications';
-import { loadProfiles } from '../settings';
-import { getCurrentBranch } from '../worktree';
 
 const logger = createLogger('pr-check');
-const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
 
 /**
- * Gets the default branch for a task's profile.
- */
-function getDefaultBranch(profileKey: string | null): string {
-  if (!profileKey) return 'main';
-  try {
-    const profiles = loadProfiles();
-    return profiles[profileKey]?.defaultBranch ?? 'main';
-  } catch {
-    return 'main';
-  }
-}
-
-/**
- * Pushes a branch to origin from a worktree.
- */
-async function pushBranch(worktreePath: string, branchName: string): Promise<void> {
-  logger.info(`Pushing ${branchName} from ${worktreePath}`);
-  await execFileAsync('git', ['push', '-u', 'origin', branchName], {
-    cwd: worktreePath,
-    timeout: 60_000,
-    windowsHide: true,
-  });
-}
-
-/**
- * Step 1: Create draft PRs for tasks that have completed execution.
- *
- * Finds tasks where:
- * - Task is in TASK_EXECUTION state
- * - Task has a worktree and session (agent has worked)
- * - Task is not disabled (agent is done)
- * - Task has no prUrl yet
- */
-async function createDraftPRs(): Promise<void> {
-  const db = getDb();
-
-  const tasks = await db.task.findMany({
-    where: {
-      state: GridState.TASK_EXECUTION,
-      prUrl: null,
-      disabled: false,
-      sessionId: { not: null },
-      worktreePath: { not: null },
-    },
-    include: {
-      story: {
-        select: { id: true, title: true },
-      },
-    },
-  });
-
-  if (tasks.length === 0) return;
-
-  logger.info(`Found ${tasks.length} tasks needing draft PRs`);
-
-  for (const task of tasks) {
-    try {
-      const worktreePath = task.worktreePath!;
-      const defaultBranch = getDefaultBranch(task.profileKey);
-
-      // Get the actual branch name from the worktree (may include keywords)
-      const taskBranch = await getCurrentBranch(worktreePath);
-      if (!taskBranch) {
-        logger.warn(`Task #${task.id}: worktree has no branch (detached HEAD), skipping PR`);
-        continue;
-      }
-
-      // Push the task branch
-      await pushBranch(worktreePath, taskBranch);
-
-      // Check if a PR already exists (maybe created by copilot or manually)
-      const existing = await findPullRequest(worktreePath, taskBranch, defaultBranch);
-
-      let prUrl: string;
-      if (existing) {
-        logger.info(`PR already exists for task #${task.id}: ${existing.url}`);
-        prUrl = existing.url;
-      } else {
-        const prTitle = `Task #${task.id}: ${task.title}`;
-        const storyContext = task.story ? `\n**Story**: #${task.story.id} — ${task.story.title}\n` : '';
-
-        const bodyParts: string[] = [];
-
-        bodyParts.push(`Implements changes for Task #${task.id}.`, '');
-
-        if (storyContext) bodyParts.push(storyContext);
-
-        bodyParts.push('---', `AB#${task.id}`);
-
-        const pr = await createPullRequest(worktreePath, {
-          title: prTitle,
-          body: bodyParts.filter(Boolean).join('\n'),
-          head: taskBranch,
-          base: defaultBranch,
-          draft: true,
-        });
-
-        prUrl = pr.url;
-        logger.info(`Created draft PR for task #${task.id}: ${prUrl}`);
-      }
-
-      // Save PR URL to database and close virtual desktop
-      await db.task.update({
-        where: { id: task.id },
-        data: { prUrl },
-      });
-
-      // Auto-close virtual desktop when PR is detected (step 15 of flow)
-      try {
-        await closeVirtualDesktop(task.id);
-        await db.task.update({
-          where: { id: task.id },
-          data: { desktopOpen: false, desktopName: null },
-        });
-        logger.info(`Task #${task.id}: virtual desktop closed after PR creation`);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        logger.debug(`Task #${task.id}: virtual desktop cleanup after PR: ${message}`);
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.error(`Failed to create draft PR for task #${task.id}: ${message}`);
-    }
-  }
-}
-
-/**
- * Step 2: Check if draft PRs have been marked as ready for review.
+ * Check if draft PRs have been marked as ready for review.
  *
  * For tasks in TASK_EXECUTION that have a prUrl, checks whether the
  * PR is still a draft. If the user has marked it as ready (no longer
@@ -178,6 +48,7 @@ async function checkDraftToReady(): Promise<void> {
     where: {
       state: GridState.TASK_EXECUTION,
       prUrl: { not: null },
+      removedFromSprint: false,
     },
   });
 
@@ -336,6 +207,7 @@ async function updatePrReadiness(): Promise<void> {
       state: GridState.PR_REVIEW,
       prUrl: { not: null },
       prMerged: false,
+      removedFromSprint: false,
     },
   });
 
@@ -397,6 +269,7 @@ async function checkTaskPRMerges(): Promise<void> {
       state: GridState.PR_REVIEW,
       prUrl: { not: null },
       prMerged: false,
+      removedFromSprint: false,
     },
   });
 
@@ -463,7 +336,6 @@ export async function runPrCheckStep(): Promise<void> {
     return;
   }
 
-  await createDraftPRs();
   await checkDraftToReady();
   await updatePrReadiness();
   await checkTaskPRMerges();

@@ -2,21 +2,19 @@
  * Integration tests for the PR check cron step.
  *
  * Uses a real SQLite database (via setupTestDb) with mocked external services.
- * Validates that runPrCheckStep() correctly creates draft PRs for tasks in
- * TASK_EXECUTION, detects draft→ready transitions, detects merges, and
- * persists all state transitions in the DB.
+ * Validates that runPrCheckStep() detects draft→ready transitions, detects
+ * merges, and persists all state transitions in the DB.
  */
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { GridState } from '../../shared/constants';
-import { createPullRequest, findPullRequest, getPullRequestByUrl, isGhAuthenticated } from '../github';
+import { getPullRequestByUrl, isGhAuthenticated } from '../github';
 import { notifyTaskCompleted } from '../notifications';
 // ─── Real DB setup ─────────────────────────────────────────
 
 import { resetTestDb, setupTestDb, teardownTestDb } from '../test-utils/db';
 import { makePullRequest } from '../test-utils/factories';
-import { getCurrentBranch } from '../worktree';
 
 // ─── Imports (after mocks) ─────────────────────────────────
 
@@ -35,25 +33,8 @@ vi.mock('../logger', () => ({
 
 vi.mock('../github', () => ({
   isGhAuthenticated: vi.fn().mockResolvedValue(true),
-  createPullRequest: vi.fn(),
-  findPullRequest: vi.fn().mockResolvedValue(null),
   getPullRequestByUrl: vi.fn(),
   isPrReadyToMerge: vi.fn().mockReturnValue(false),
-}));
-
-vi.mock('../worktree', () => ({
-  getBranchName: vi.fn((type: string, workItemId: number) => `${type}/${workItemId}`),
-  getCurrentBranch: vi.fn().mockResolvedValue('task/1001'),
-}));
-
-vi.mock('../settings', () => ({
-  loadProfiles: vi.fn().mockReturnValue({
-    integrate: {
-      repoPath: 'C:/repos/test-repo',
-      defaultBranch: 'main',
-      description: 'Test profile',
-    },
-  }),
 }));
 
 vi.mock('../notifications', () => ({
@@ -107,7 +88,6 @@ afterEach(async () => {
   vi.clearAllMocks();
   // Restore default mock behaviors
   vi.mocked(isGhAuthenticated).mockResolvedValue(true);
-  vi.mocked(findPullRequest).mockResolvedValue(null);
 });
 
 afterAll(async () => {
@@ -117,131 +97,6 @@ afterAll(async () => {
 // ─── Tests ─────────────────────────────────────────────────
 
 describe('runPrCheckStep (integration)', () => {
-  describe('Draft PR creation', () => {
-    it('creates draft PR and saves URL for task in TASK_EXECUTION', async () => {
-      await db.story.create({
-        data: { id: 9001, title: 'Test story', azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/9001' },
-      });
-      await db.task.create({
-        data: {
-          id: 9010,
-          title: 'Needs draft PR',
-          azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/9010',
-          state: GridState.TASK_EXECUTION,
-          profileKey: 'integrate',
-          worktreePath: 'C:/repos/test-wt',
-          sessionId: 'session-9010',
-          prUrl: null,
-          prMerged: false,
-          disabled: false,
-          storyId: 9001,
-        },
-      });
-
-      vi.mocked(getCurrentBranch).mockResolvedValueOnce('task/9010');
-      vi.mocked(createPullRequest).mockResolvedValueOnce(
-        makePullRequest({ url: 'https://github.com/org/repo/pull/301', isDraft: true }),
-      );
-
-      await runPrCheckStep();
-
-      const task = await db.task.findUnique({ where: { id: 9010 } });
-      expect(task!.prUrl).toBe('https://github.com/org/repo/pull/301');
-      expect(task!.state).toBe(GridState.TASK_EXECUTION); // stays in TASK_EXECUTION
-      expect(createPullRequest).toHaveBeenCalledWith('C:/repos/test-wt', expect.objectContaining({ draft: true }));
-    });
-
-    it('uses existing PR URL when one already exists on GitHub', async () => {
-      await db.task.create({
-        data: {
-          id: 9011,
-          title: 'Has existing PR',
-          azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/9011',
-          state: GridState.TASK_EXECUTION,
-          profileKey: 'integrate',
-          worktreePath: 'C:/repos/test-wt-2',
-          sessionId: 'session-9011',
-          prUrl: null,
-          prMerged: false,
-          disabled: false,
-        },
-      });
-
-      vi.mocked(getCurrentBranch).mockResolvedValueOnce('task/9011');
-      vi.mocked(findPullRequest).mockResolvedValueOnce(makePullRequest({ url: 'https://github.com/org/repo/pull/existing' }));
-
-      await runPrCheckStep();
-
-      expect(createPullRequest).not.toHaveBeenCalled();
-      const task = await db.task.findUnique({ where: { id: 9011 } });
-      expect(task!.prUrl).toBe('https://github.com/org/repo/pull/existing');
-    });
-
-    it('does not create PR for tasks that already have prUrl', async () => {
-      await db.task.create({
-        data: {
-          id: 9012,
-          title: 'Already has PR',
-          azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/9012',
-          state: GridState.TASK_EXECUTION,
-          profileKey: 'integrate',
-          worktreePath: 'C:/repos/test-wt-3',
-          sessionId: 'session-9012',
-          prUrl: 'https://github.com/org/repo/pull/42',
-          prMerged: false,
-          disabled: false,
-        },
-      });
-
-      await runPrCheckStep();
-
-      expect(createPullRequest).not.toHaveBeenCalled();
-      expect(findPullRequest).not.toHaveBeenCalled();
-    });
-
-    it('skips tasks still running (disabled=true)', async () => {
-      await db.task.create({
-        data: {
-          id: 9013,
-          title: 'Still running',
-          azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/9013',
-          state: GridState.TASK_EXECUTION,
-          profileKey: 'integrate',
-          worktreePath: 'C:/repos/test-wt-4',
-          sessionId: 'session-9013',
-          prUrl: null,
-          prMerged: false,
-          disabled: true, // agent still working
-        },
-      });
-
-      await runPrCheckStep();
-
-      expect(createPullRequest).not.toHaveBeenCalled();
-    });
-
-    it('skips tasks without a session', async () => {
-      await db.task.create({
-        data: {
-          id: 9014,
-          title: 'No session',
-          azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/9014',
-          state: GridState.TASK_EXECUTION,
-          profileKey: 'integrate',
-          worktreePath: 'C:/repos/test-wt-5',
-          sessionId: null,
-          prUrl: null,
-          prMerged: false,
-          disabled: false,
-        },
-      });
-
-      await runPrCheckStep();
-
-      expect(createPullRequest).not.toHaveBeenCalled();
-    });
-  });
-
   describe('Draft → Ready detection', () => {
     it('moves task to PR_REVIEW when draft PR is marked as ready', async () => {
       await db.task.create({
@@ -394,24 +249,8 @@ describe('runPrCheckStep (integration)', () => {
   });
 
   describe('full pipeline scenarios', () => {
-    it('handles mixed tasks: one needs draft PR, one draft→ready, one merged', async () => {
-      // Task 1: In TASK_EXECUTION, needs a draft PR created
-      await db.task.create({
-        data: {
-          id: 9040,
-          title: 'Needs draft PR',
-          azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/9040',
-          state: GridState.TASK_EXECUTION,
-          profileKey: 'integrate',
-          worktreePath: 'C:/repos/wt-40',
-          sessionId: 'session-40',
-          prUrl: null,
-          prMerged: false,
-          disabled: false,
-        },
-      });
-
-      // Task 2: In TASK_EXECUTION with draft PR that's been marked ready
+    it('handles mixed tasks: one draft→ready, one merged', async () => {
+      // Task 1: In TASK_EXECUTION with draft PR that's been marked ready
       await db.task.create({
         data: {
           id: 9041,
@@ -427,7 +266,7 @@ describe('runPrCheckStep (integration)', () => {
         },
       });
 
-      // Task 3: In PR_REVIEW with merged PR
+      // Task 2: In PR_REVIEW with merged PR
       await db.task.create({
         data: {
           id: 9042,
@@ -443,23 +282,11 @@ describe('runPrCheckStep (integration)', () => {
         },
       });
 
-      // Mock getCurrentBranch for task 9040
-      vi.mocked(getCurrentBranch).mockResolvedValueOnce('task/9040');
-
-      // Mock PR creation for task 9040
-      vi.mocked(createPullRequest).mockResolvedValueOnce(
-        makePullRequest({ url: 'https://github.com/org/repo/pull/400', isDraft: true }),
-      );
-
       // Mock getPullRequestByUrl — used by both checkDraftToReady and checkTaskPRMerges
       vi.mocked(getPullRequestByUrl).mockImplementation(async (prUrl: string) => {
         if (prUrl === 'https://github.com/org/repo/pull/401') {
           // Task 9041: no longer a draft
           return makePullRequest({ isDraft: false, state: 'OPEN' });
-        }
-        if (prUrl === 'https://github.com/org/repo/pull/400') {
-          // Task 9040: just created, still a draft (checkDraftToReady sees it)
-          return makePullRequest({ isDraft: true, state: 'OPEN' });
         }
         if (prUrl === 'https://github.com/org/repo/pull/402') {
           // Task 9042: merged
@@ -469,11 +296,6 @@ describe('runPrCheckStep (integration)', () => {
       });
 
       await runPrCheckStep();
-
-      // Task 9040: should have draft PR URL, still in TASK_EXECUTION
-      const task40 = await db.task.findUnique({ where: { id: 9040 } });
-      expect(task40!.prUrl).toBe('https://github.com/org/repo/pull/400');
-      expect(task40!.state).toBe(GridState.TASK_EXECUTION);
 
       // Task 9041: should be moved to PR_REVIEW
       const task41 = await db.task.findUnique({ where: { id: 9041 } });
@@ -508,7 +330,6 @@ describe('runPrCheckStep (integration)', () => {
 
       const task = await db.task.findUnique({ where: { id: 9050 } });
       expect(task!.prUrl).toBeNull();
-      expect(createPullRequest).not.toHaveBeenCalled();
       expect(getPullRequestByUrl).not.toHaveBeenCalled();
     });
   });

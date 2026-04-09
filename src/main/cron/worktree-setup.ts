@@ -68,6 +68,7 @@ export async function setupTaskWorktrees(): Promise<void> {
       state: GridState.COPILOT_KICKOFF,
       profileKey: { not: null },
       worktreePath: null,
+      removedFromSprint: false,
       OR: [
         { disabled: true }, // Automated tasks (agent will work on them)
         { skipCopilot: true }, // Manual execution tasks (user will work manually)

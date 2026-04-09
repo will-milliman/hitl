@@ -71,6 +71,7 @@ async function recoverInterruptedTasks(): Promise<void> {
       state: GridState.COPILOT_KICKOFF,
       worktreePath: { not: null },
       disabled: true,
+      removedFromSprint: false,
     },
   });
 
@@ -91,6 +92,7 @@ async function recoverInterruptedTasks(): Promise<void> {
       sessionId: { not: null },
       worktreePath: { not: null },
       disabled: true,
+      removedFromSprint: false,
     },
   });
 
@@ -154,6 +156,7 @@ export async function runTaskExecutionStep(): Promise<void> {
       sessionId: null,
       disabled: true, // Should be disabled (agent will be working)
       skipCopilot: false, // Don't spawn copilot for tasks that opted out
+      removedFromSprint: false,
     },
     include: {
       story: {
@@ -233,6 +236,7 @@ export async function resumeTaskWatchers(): Promise<void> {
       sessionId: { not: null },
       worktreePath: { not: null },
       disabled: true,
+      removedFromSprint: false,
     },
   });
 

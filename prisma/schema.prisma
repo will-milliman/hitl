@@ -42,6 +42,8 @@ model Task {
   errorMessage String?                          // Last error message (null = no error)
   errorAt      DateTime?                        // When the last error occurred
   previousState String?                         // State before ERROR (for retry — restore to this state)
+  removedFromSprint Boolean @default(false)     // Soft-delete: task disappeared from Azure sprint query
+  removedAt    DateTime?                        // When the task was removed from the sprint (for stale cleanup)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -49,6 +51,7 @@ model Task {
 
   @@index([state])
   @@index([storyId])
+  @@index([removedFromSprint])
 }
 
 /// Flags controlling which cron job steps can execute

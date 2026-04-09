@@ -19,7 +19,8 @@
  * 5. Upsert parent stories as lightweight references
  * 6. Upsert tasks into the DB — new tasks start in PROFILE_ASSIGNMENT
  * 7. Handle blocked tasks (Azure state = Blocked)
- * 8. Remove active tasks that no longer appear in the sprint query
+ * 8. Soft-delete active tasks that no longer appear in the sprint query (preserving progress)
+ * 8b. Permanently remove tasks soft-deleted for >30 days
  * 9. Remove completed/abandoned tasks that were deleted from Azure
  * 10. Remove stories no longer in the sprint (unless they have child tasks)
  */
@@ -143,7 +144,7 @@ export async function syncWorkItems(): Promise<void> {
     });
   }
 
-  // 6. Upsert tasks
+  // 6. Upsert tasks (and restore any that were previously soft-deleted)
   for (const task of tasks) {
     const id = task.fields['System.Id'];
     const title = task.fields['System.Title'];
@@ -156,7 +157,21 @@ export async function syncWorkItems(): Promise<void> {
     const existing = await db.task.findUnique({ where: { id } });
 
     if (existing) {
-      if (isBlocked && existing.state !== GridState.BLOCKED) {
+      // If the task was soft-deleted (removed from sprint) but is now back, restore it
+      if (existing.removedFromSprint) {
+        await db.task.update({
+          where: { id },
+          data: {
+            title,
+            workItemType,
+            azureUrl,
+            storyId: typeof parentId === 'number' ? parentId : existing.storyId,
+            removedFromSprint: false,
+            removedAt: null,
+          },
+        });
+        logger.info(`Task #${id} reappeared in sprint — restored to ${existing.state} (progress preserved)`);
+      } else if (isBlocked && existing.state !== GridState.BLOCKED) {
         // Task became blocked in Azure — move it to BLOCKED grid
         await db.task.update({
           where: { id },
@@ -213,24 +228,51 @@ export async function syncWorkItems(): Promise<void> {
     }
   }
 
-  // 7. Remove active tasks that no longer appear in the sprint query
-  // COMPLETED, ABANDONED, and NON_HITL tasks are excluded here because they
-  // naturally leave the sprint query when closed — they are checked separately
-  // in step 8.
+  // 7. Soft-delete active tasks that no longer appear in the sprint query.
+  // Instead of permanently deleting, mark them as removedFromSprint so that
+  // if the work item reappears (e.g. coworker moved it out and back), all
+  // pipeline progress (worktree, PR, copilot session, grid state) is preserved.
+  // Tasks that have already been soft-deleted are excluded (idempotent).
   const localActiveTasks = await db.task.findMany({
     where: {
       state: { notIn: [GridState.COMPLETED, GridState.ABANDONED, GridState.NON_HITL] },
+      removedFromSprint: false,
     },
-    select: { id: true },
+    select: { id: true, state: true },
   });
 
   const removedActiveIds = localActiveTasks.filter((t) => !azureTaskIdSet.has(t.id)).map((t) => t.id);
 
   if (removedActiveIds.length > 0) {
-    await db.task.deleteMany({
+    await db.task.updateMany({
       where: { id: { in: removedActiveIds } },
+      data: {
+        removedFromSprint: true,
+        removedAt: new Date(),
+      },
     });
-    logger.info(`Removed ${removedActiveIds.length} active tasks no longer in Azure: ${removedActiveIds.join(', ')}`);
+    logger.info(`Soft-deleted ${removedActiveIds.length} active tasks no longer in Azure sprint: ${removedActiveIds.join(', ')}`);
+  }
+
+  // 7b. Clean up tasks that have been removed from the sprint for over 30 days.
+  // At this point the user is unlikely to recover them, and holding on to stale
+  // records (and orphaned worktrees/sessions) just creates noise.
+  const STALE_THRESHOLD_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+  const staleDate = new Date(Date.now() - STALE_THRESHOLD_MS);
+  const staleTasks = await db.task.findMany({
+    where: {
+      removedFromSprint: true,
+      removedAt: { lt: staleDate },
+    },
+    select: { id: true },
+  });
+
+  if (staleTasks.length > 0) {
+    const staleIds = staleTasks.map((t) => t.id);
+    await db.task.deleteMany({
+      where: { id: { in: staleIds } },
+    });
+    logger.info(`Permanently removed ${staleIds.length} tasks soft-deleted >30 days ago: ${staleIds.join(', ')}`);
   }
 
   // 8. Remove completed/abandoned/non-hitl tasks that were deleted from Azure
