@@ -37,16 +37,22 @@ export interface TaskRecord {
   profileKey: string | null;
   worktreePath: string | null;
   sessionId: string | null;
+  model: string | null;
   prUrl: string | null;
   prMerged: boolean;
   azureUrl: string;
   disabled: boolean;
+  desktopOpen: boolean;
+  desktopName: string | null;
   skipCopilot: boolean;
   prUpdated: boolean;
+  lastAgentResponse: Date | null;
   completedAt: Date | null;
   errorMessage: string | null;
   errorAt: Date | null;
   previousState: string | null;
+  removedFromSprint: boolean;
+  removedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -61,16 +67,22 @@ const TASK_DEFAULTS: TaskRecord = {
   profileKey: null,
   worktreePath: null,
   sessionId: null,
+  model: null,
   prUrl: null,
   prMerged: false,
   azureUrl: 'https://dev.azure.com/org/project/_workitems/edit/91001',
   disabled: false,
+  desktopOpen: false,
+  desktopName: null,
   skipCopilot: false,
   prUpdated: false,
+  lastAgentResponse: null,
   completedAt: null,
   errorMessage: null,
   errorAt: null,
   previousState: null,
+  removedFromSprint: false,
+  removedAt: null,
   createdAt: new Date('2025-01-01T00:00:00Z'),
   updatedAt: new Date('2025-01-01T00:00:00Z'),
 };

@@ -3,14 +3,18 @@
  *
  * Runs on each cron tick (gated by `prCheckEnabled` flag). Handles:
  *
- * 1. **Draft → Ready Detection**: For tasks in TASK_EXECUTION that have
- *    a draft PR, checks if the PR has been marked as ready for review.
- *    If no longer a draft, moves the task to PR_REVIEW.
+ * 1. **PR Discovery**: For tasks in TASK_EXECUTION that don't have a prUrl yet,
+ *    searches GitHub for a PR matching the task's branch name. If found,
+ *    populates prUrl so subsequent steps can track it.
  *
- * 2. **PR Readiness**: For tasks in PR_REVIEW, checks if the PR is ready
+ * 2. **Draft → Ready Detection**: For tasks in TASK_EXECUTION that have
+ *    a prUrl, checks if the PR is open and not a draft. If so, moves the
+ *    task to PR_REVIEW.
+ *
+ * 3. **PR Readiness**: For tasks in PR_REVIEW, checks if the PR is ready
  *    to merge (all checks pass, reviews approved).
  *
- * 3. **PR Merge/Close Detection + Cleanup**: For tasks in PR_REVIEW with a PR,
+ * 4. **PR Merge/Close Detection + Cleanup**: For tasks in PR_REVIEW with a PR,
  *    checks if the PR has been merged or closed. If merged, moves the task to
  *    COMPLETED. If closed (without merge), moves the task to ABANDONED.
  *    In both cases, cleans up resources:
@@ -27,19 +31,90 @@ import { promisify } from 'util';
 
 import { GridState } from '../../shared/constants';
 import { getDb } from '../db';
-import { getPullRequestByUrl, isGhAuthenticated, isPrReadyToMerge } from '../github';
+import { findPullRequest, getPullRequestByUrl, isGhAuthenticated, isPrReadyToMerge } from '../github';
 import { createLogger } from '../logger';
 import { notifyTaskCompleted } from '../notifications';
+import { loadProfiles } from '../settings';
+import { closeDesktop } from '../virtual-desktop';
+import { getCurrentBranch } from '../worktree';
 
 const logger = createLogger('pr-check');
 const execFileAsync = promisify(execFile);
 
 /**
- * Check if draft PRs have been marked as ready for review.
+ * Resolves a working directory for `gh` CLI calls.
+ * Prefers the task's worktree path; falls back to the profile's repoPath.
+ */
+function resolveGhCwd(task: { worktreePath: string | null; profileKey: string | null }): string | null {
+  if (task.worktreePath) return task.worktreePath;
+  if (task.profileKey) {
+    const profile = loadProfiles()[task.profileKey];
+    if (profile?.repoPath) return profile.repoPath;
+  }
+  return null;
+}
+
+/**
+ * Discover PRs for tasks that don't have one linked yet.
+ *
+ * For tasks in TASK_EXECUTION (or COPILOT_KICKOFF) with a worktree but
+ * no prUrl, gets the current branch name and searches GitHub for a PR
+ * matching that branch. If found, saves the PR URL to the task so that
+ * subsequent steps (draft→ready, merge/close) can track it.
+ */
+async function discoverTaskPRs(): Promise<void> {
+  const db = getDb();
+
+  const tasks = await db.task.findMany({
+    where: {
+      state: { in: [GridState.TASK_EXECUTION, GridState.COPILOT_KICKOFF] },
+      prUrl: null,
+      worktreePath: { not: null },
+      removedFromSprint: false,
+    },
+  });
+
+  if (tasks.length === 0) return;
+
+  logger.info(`Scanning for PRs on ${tasks.length} tasks without a linked PR`);
+
+  const profiles = loadProfiles();
+
+  for (const task of tasks) {
+    try {
+      const cwd = resolveGhCwd(task);
+      if (!cwd) continue;
+
+      // Get the current branch name in the worktree
+      const branch = await getCurrentBranch(task.worktreePath!);
+      if (!branch) continue;
+
+      // Determine the base branch from the profile's defaultBranch
+      const profile = task.profileKey ? profiles[task.profileKey] : null;
+      const baseBranch = profile?.defaultBranch ?? 'main';
+
+      // Search GitHub for a PR from this branch
+      const pr = await findPullRequest(cwd, branch, baseBranch);
+
+      if (pr) {
+        logger.info(`Task #${task.id}: discovered PR #${pr.number} (${pr.url}) from branch ${branch}`);
+        await db.task.update({
+          where: { id: task.id },
+          data: { prUrl: pr.url },
+        });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error(`Failed to discover PR for task #${task.id}: ${message}`);
+    }
+  }
+}
+
+/**
+ * Check if tasks with a PR should move to PR_REVIEW.
  *
  * For tasks in TASK_EXECUTION that have a prUrl, checks whether the
- * PR is still a draft. If the user has marked it as ready (no longer
- * a draft), moves the task to PR_REVIEW.
+ * PR is open and not a draft. If so, moves the task to PR_REVIEW.
  */
 async function checkDraftToReady(): Promise<void> {
   const db = getDb();
@@ -59,12 +134,17 @@ async function checkDraftToReady(): Promise<void> {
   for (const task of tasks) {
     try {
       const prUrl = task.prUrl!;
-      const worktreePath = task.worktreePath!;
+      const cwd = resolveGhCwd(task);
 
-      const pr = await getPullRequestByUrl(prUrl, worktreePath);
+      if (!cwd) {
+        logger.warn(`Task #${task.id}: no worktreePath or profileKey — skipping draft check`);
+        continue;
+      }
 
-      if (!pr.isDraft) {
-        logger.info(`Task #${task.id} PR is no longer a draft — moving to PR_REVIEW`);
+      const pr = await getPullRequestByUrl(prUrl, cwd);
+
+      if (!pr.isDraft && pr.state === 'OPEN') {
+        logger.info(`Task #${task.id} PR is open and not a draft — moving to PR_REVIEW`);
 
         await db.task.update({
           where: { id: task.id },
@@ -81,59 +161,16 @@ async function checkDraftToReady(): Promise<void> {
 /**
  * Closes all windows on a task's virtual desktop and removes the desktop.
  *
- * Virtual desktops are created with the name "Task #<id>" when the user
- * opens the task workspace. This function:
- * 1. Finds the desktop by name
- * 2. Gets all window handles on that desktop
- * 3. Sends WM_CLOSE to each window to close it gracefully
- * 4. Removes the virtual desktop
- *
- * Uses the PowerShell VirtualDesktop module. Failures are logged but
- * do not prevent the task from completing.
+ * @param desktopName The name of the desktop to close. If null/undefined,
+ *                    this is a no-op (no desktop was opened for this task).
  */
-async function closeVirtualDesktop(taskId: number): Promise<void> {
-  // Look up the stored desktop name; fall back to legacy format
-  const db = getDb();
-  const task = await db.task.findUnique({ where: { id: taskId }, select: { desktopName: true } });
-  const desktopName = task?.desktopName ?? `Task #${taskId}`;
-  const safeName = desktopName.replace(/'/g, "''");
+async function closeVirtualDesktop(desktopName: string | null | undefined): Promise<void> {
+  if (!desktopName) return;
 
-  // PowerShell script passed via execFile (bypasses cmd.exe, no double-quote issues).
-  // 1. Defines Win32 helpers to close windows and look up their processes
-  // 2. Finds the desktop by name
-  // 3. Sends WM_CLOSE to all windows, waits, then force-kills remaining processes
-  // 4. Removes the desktop
-  const ps1 = [
-    `Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class Win32Close { [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint Msg, int wParam, int lParam); [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId); }'`,
-    `Import-Module VirtualDesktop`,
-    `$desktop = Get-Desktop | Where-Object { $_.Name -eq '${safeName}' }`,
-    `if ($desktop) {`,
-    `  $handles = @($desktop | Get-DesktopWindow)`,
-    `  $pids = @()`,
-    `  foreach ($h in $handles) {`,
-    `    try {`,
-    `      $pid = 0`,
-    `      [Win32Close]::GetWindowThreadProcessId($h, [ref]$pid) | Out-Null`,
-    `      if ($pid -gt 0) { $pids += $pid }`,
-    `      [Win32Close]::PostMessage($h, 0x0010, 0, 0) | Out-Null`,
-    `    } catch { }`,
-    `  }`,
-    `  Start-Sleep -Milliseconds 2000`,
-    `  $pids = $pids | Sort-Object -Unique`,
-    `  foreach ($p in $pids) {`,
-    `    try { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue } catch { }`,
-    `  }`,
-    `  Start-Sleep -Milliseconds 500`,
-    `  try { $desktop | Remove-Desktop -ErrorAction SilentlyContinue } catch { }`,
-    `}`,
-  ].join('; ');
-
-  logger.info(`Closing virtual desktop "${desktopName}"`);
-
-  await execFileAsync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps1], {
-    windowsHide: true,
-    timeout: 15_000,
-  });
+  const result = await closeDesktop(desktopName, { hardFail: false });
+  if (!result.success) {
+    logger.debug(`Virtual desktop "${desktopName}" close result: ${result.error}`);
+  }
 }
 
 /**
@@ -152,6 +189,15 @@ async function closeVirtualDesktop(taskId: number): Promise<void> {
  */
 export async function cleanupCompletedTask(taskId: number, worktreePath: string | null): Promise<void> {
   const db = getDb();
+
+  // Read the desktop name BEFORE clearing DB fields (the close function needs it)
+  let desktopName: string | null = null;
+  try {
+    const task = await db.task.findUnique({ where: { id: taskId }, select: { desktopName: true } });
+    desktopName = task?.desktopName ?? null;
+  } catch {
+    // Best-effort — if we can't read, we'll skip desktop close
+  }
 
   // Detach the git branch so the worktree can be reused with a new branch.
   // Must happen before clearing the DB fields (we need worktreePath).
@@ -181,10 +227,12 @@ export async function cleanupCompletedTask(taskId: number, worktreePath: string 
     logger.error(`Task #${taskId}: failed to park worktree: ${message}`);
   }
 
-  // Close virtual desktop and its windows
+  // Close virtual desktop and its windows (using name saved before DB clear)
   try {
-    await closeVirtualDesktop(taskId);
-    logger.info(`Task #${taskId}: virtual desktop closed`);
+    await closeVirtualDesktop(desktopName);
+    if (desktopName) {
+      logger.info(`Task #${taskId}: virtual desktop closed`);
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     // This is expected when no virtual desktop was opened for the task
@@ -216,9 +264,14 @@ async function updatePrReadiness(): Promise<void> {
   for (const task of tasks) {
     try {
       const prUrl = task.prUrl!;
-      const worktreePath = task.worktreePath!;
+      const cwd = resolveGhCwd(task);
 
-      const pr = await getPullRequestByUrl(prUrl, worktreePath);
+      if (!cwd) {
+        logger.warn(`Task #${task.id}: no worktreePath or profileKey — skipping PR readiness check`);
+        continue;
+      }
+
+      const pr = await getPullRequestByUrl(prUrl, cwd);
 
       // Skip merged/closed PRs (handled by checkTaskPRMerges)
       if (pr.state === 'MERGED' || pr.state === 'CLOSED') continue;
@@ -280,10 +333,15 @@ async function checkTaskPRMerges(): Promise<void> {
   for (const task of tasks) {
     try {
       const prUrl = task.prUrl!;
-      const worktreePath = task.worktreePath!;
+      const cwd = resolveGhCwd(task);
+
+      if (!cwd) {
+        logger.warn(`Task #${task.id}: no worktreePath or profileKey — skipping merge check`);
+        continue;
+      }
 
       // Get the PR state via gh pr view
-      const pr = await getPullRequestByUrl(prUrl, worktreePath);
+      const pr = await getPullRequestByUrl(prUrl, cwd);
 
       if (pr.state === 'MERGED') {
         logger.info(`Task #${task.id} PR has been merged — moving to COMPLETED`);
@@ -336,6 +394,7 @@ export async function runPrCheckStep(): Promise<void> {
     return;
   }
 
+  await discoverTaskPRs();
   await checkDraftToReady();
   await updatePrReadiness();
   await checkTaskPRMerges();

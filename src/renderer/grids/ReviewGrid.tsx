@@ -26,7 +26,6 @@ interface ReviewGridProps {
 export function ReviewGrid({ tasks, profiles }: ReviewGridProps) {
   const utils = trpc.useContext();
   const openVSCode = trpc.openInVSCode.useMutation();
-  const openTerminal = trpc.openInTerminal.useMutation();
   const openExternal = trpc.openExternal.useMutation();
   const openExternalBatch = trpc.openExternalBatch.useMutation();
   const openSession = trpc.openSession.useMutation({ onSuccess: () => utils.tasks.invalidate() });
@@ -177,26 +176,9 @@ export function ReviewGrid({ tasks, profiles }: ReviewGridProps) {
                 opens.push(
                   openExternalBatch.mutateAsync({ urls }).catch((e) => console.error('[grid] openExternalBatch failed:', e)),
                 );
-                if (row.sessionId) {
-                  opens.push(
-                    openSession
-                      .mutateAsync({
-                        sessionId: row.sessionId,
-                        cwd: row.worktreePath!,
-                        taskId: row.id,
-                      })
-                      .catch((e) => console.error('[grid] openSession failed:', e)),
-                  );
-                } else {
-                  opens.push(
-                    openTerminal
-                      .mutateAsync({ path: row.worktreePath! })
-                      .catch((e) => console.error('[grid] openTerminal failed:', e)),
-                  );
-                }
                 await Promise.all(opens);
               }}
-              title="Open VS Code, Terminal/Session, Azure work item, and PR on a new virtual desktop"
+              title="Open VS Code, Azure work item, and PR on a new virtual desktop"
             >
               Open
             </ActionLink>
@@ -233,7 +215,6 @@ export function ReviewGrid({ tasks, profiles }: ReviewGridProps) {
     ],
     [
       openVSCode,
-      openTerminal,
       openExternal,
       openExternalBatch,
       openSession,

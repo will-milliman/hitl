@@ -25,10 +25,7 @@ interface TaskExecutionGridProps {
 export function TaskExecutionGrid({ tasks, profiles }: TaskExecutionGridProps) {
   const utils = trpc.useContext();
   const openVSCode = trpc.openInVSCode.useMutation();
-  const openTerminal = trpc.openInTerminal.useMutation();
   const openExternalBatch = trpc.openExternalBatch.useMutation();
-  const openSession = trpc.openSession.useMutation({ onSuccess: () => utils.tasks.invalidate() });
-  const startCopilotSession = trpc.startCopilotSession.useMutation({ onSuccess: () => utils.tasks.invalidate() });
   const createVirtualDesktop = trpc.createVirtualDesktop.useMutation();
   const closeVirtualDesktop = trpc.closeVirtualDesktop.useMutation();
   const resetTask = trpc.resetTask.useMutation({ onSuccess: () => utils.tasks.invalidate() });
@@ -151,33 +148,9 @@ export function TaskExecutionGrid({ tasks, profiles }: TaskExecutionGridProps) {
                 opens.push(
                   openExternalBatch.mutateAsync({ urls }).catch((e) => console.error('[grid] openExternalBatch failed:', e)),
                 );
-                if (row.sessionId) {
-                  opens.push(
-                    openSession
-                      .mutateAsync({
-                        sessionId: row.sessionId,
-                        cwd: row.worktreePath!,
-                        taskId: row.id,
-                      })
-                      .catch((e) => console.error('[grid] openSession failed:', e)),
-                  );
-                } else if (row.skipCopilot) {
-                  // Manual mode: start a fresh copilot session
-                  opens.push(
-                    startCopilotSession
-                      .mutateAsync({ cwd: row.worktreePath!, taskId: row.id })
-                      .catch((e) => console.error('[grid] startCopilotSession failed:', e)),
-                  );
-                } else {
-                  opens.push(
-                    openTerminal
-                      .mutateAsync({ path: row.worktreePath! })
-                      .catch((e) => console.error('[grid] openTerminal failed:', e)),
-                  );
-                }
                 await Promise.all(opens);
               }}
-              title="Open VS Code, Copilot session, and Azure work item on a new virtual desktop"
+              title="Open VS Code and Azure work item on a new virtual desktop"
             >
               Open
             </ActionLink>
@@ -204,18 +177,7 @@ export function TaskExecutionGrid({ tasks, profiles }: TaskExecutionGridProps) {
         },
       }),
     ],
-    [
-      openVSCode,
-      openTerminal,
-      openExternalBatch,
-      openSession,
-      startCopilotSession,
-      createVirtualDesktop,
-      closeVirtualDesktop,
-      resetTask,
-      utils,
-      profiles,
-    ],
+    [openVSCode, openExternalBatch, createVirtualDesktop, closeVirtualDesktop, resetTask, utils, profiles],
   );
 
   return (

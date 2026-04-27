@@ -5,6 +5,7 @@
  * 1. Checks if the system is idle (powerMonitor)
  * 2. Checks CronState flags to see which steps are enabled
  * 3. Executes the Azure DevOps sync step (if enabled)
+ * 3b. Reconciles every task's state against Azure + GitHub (if sync enabled)
  * 4. Sets up worktrees for newly profile-assigned tasks (if enabled)
  * 5. Spawns copilot task execution sessions (if enabled)
  * 6. Checks task PRs for draft status/readiness/merges (if pr-check enabled)
@@ -153,6 +154,16 @@ async function tick(): Promise<void> {
     if (flags.syncEnabled) {
       const err = await runStep('Azure DevOps sync', syncWorkItems);
       if (err) cronStatus.stepErrors['sync'] = err;
+    }
+
+    // Step 1b: State reconciliation — check every task's actual status
+    // and move it to the correct grid. Runs every tick to catch tasks
+    // that were missed by event-based mechanisms (signal watcher, etc.).
+    if (flags.syncEnabled) {
+      const err = await runStep('State reconciliation', async () => {
+        await reconcileStates();
+      });
+      if (err) cronStatus.stepErrors['stateReconciliation'] = err;
     }
 
     // Step 2: Worktree setup for newly profile-assigned tasks

@@ -1,5 +1,5 @@
 import { initTRPC } from '@trpc/server';
-import { exec, execFile } from 'child_process';
+import { exec } from 'child_process';
 import { BrowserWindow } from 'electron';
 import { join } from 'path';
 import { z } from 'zod';
@@ -34,7 +34,8 @@ import { getLogDir, getRecentLogs, getSessionLogs, listLogFiles, readLogFile } f
 import type { LogLevel } from '../logger';
 import { loadProfiles, loadSettings, updateSettings } from '../settings';
 import { checkForUpdates, getUpdateStatus, installUpdate } from '../updater';
-import { getCurrentBranch, listWorktrees, pruneWorktrees } from '../worktree';
+import { closeDesktop } from '../virtual-desktop';
+import { getCurrentBranch, listWorktrees, pruneWorktrees, toDesktopName } from '../worktree';
 
 const t = initTRPC.create();
 
@@ -426,7 +427,7 @@ export const appRouter = t.router({
       let desktopName = input?.name;
       if (input?.worktreePath) {
         const branch = await getCurrentBranch(input.worktreePath);
-        if (branch) desktopName = branch;
+        if (branch) desktopName = toDesktopName(branch);
       }
 
       return new Promise<{ success: boolean; error?: string }>((resolve) => {
@@ -503,64 +504,40 @@ export const appRouter = t.router({
         return { success: false, error: 'No desktop name provided or found' };
       }
 
-      const safeName = desktopName.replace(/'/g, "''");
-      // PowerShell script passed via execFile (bypasses cmd.exe, no double-quote issues).
-      // 1. Defines Win32 helpers to close windows and look up their processes
-      // 2. Finds the desktop by name
-      // 3. Sends WM_CLOSE to all windows, waits, then force-kills remaining processes
-      // 4. Removes the desktop
-      const ps1 = [
-        `Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class Win32Close { [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint Msg, int wParam, int lParam); [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId); }'`,
-        `Import-Module VirtualDesktop`,
-        `$desktop = Get-Desktop | Where-Object { $_.Name -eq '${safeName}' }`,
-        `if ($desktop) {`,
-        `  $handles = @($desktop | Get-DesktopWindow)`,
-        `  $pids = @()`,
-        `  foreach ($h in $handles) {`,
-        `    try {`,
-        `      $pid = 0`,
-        `      [Win32Close]::GetWindowThreadProcessId($h, [ref]$pid) | Out-Null`,
-        `      if ($pid -gt 0) { $pids += $pid }`,
-        `      [Win32Close]::PostMessage($h, 0x0010, 0, 0) | Out-Null`,
-        `    } catch { }`,
-        `  }`,
-        `  Start-Sleep -Milliseconds 2000`,
-        `  $pids = $pids | Sort-Object -Unique`,
-        `  foreach ($p in $pids) {`,
-        `    try { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue } catch { }`,
-        `  }`,
-        `  Start-Sleep -Milliseconds 500`,
-        `  try { $desktop | Remove-Desktop -ErrorAction SilentlyContinue } catch { }`,
-        `}`,
-      ].join('; ');
+      // Use shared close logic (hardFail = true so we know if it was not found)
+      const result = await closeDesktop(desktopName, { hardFail: true });
 
-      return new Promise<{ success: boolean; error?: string }>((resolve) => {
-        execFile(
-          'powershell',
-          ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps1],
-          { windowsHide: true, timeout: 15_000 },
-          async (err) => {
-            if (err) {
-              console.error('[router] Failed to close virtual desktop:', err.message);
-              resolve({ success: false, error: err.message });
-            } else {
-              // Persist desktop-closed state in the database
-              if (input.taskId) {
-                try {
-                  const db = getDb();
-                  await db.task.update({
-                    where: { id: input.taskId },
-                    data: { desktopOpen: false, desktopName: null },
-                  });
-                } catch (e) {
-                  console.error('[router] Failed to persist desktopOpen:', e);
-                }
-              }
-              resolve({ success: true });
-            }
-          },
-        );
-      });
+      if (!result.success) {
+        console.error('[router] Failed to close virtual desktop:', result.error);
+        // If the desktop simply wasn't found, still clear DB state so the UI
+        // doesn't get stuck showing a "Close" button for a non-existent desktop.
+        if (result.error?.includes('not found') && input.taskId) {
+          try {
+            const db = getDb();
+            await db.task.update({
+              where: { id: input.taskId },
+              data: { desktopOpen: false, desktopName: null },
+            });
+          } catch (e) {
+            console.error('[router] Failed to persist desktopOpen:', e);
+          }
+        }
+        return { success: false, error: result.error };
+      }
+
+      // Persist desktop-closed state in the database
+      if (input.taskId) {
+        try {
+          const db = getDb();
+          await db.task.update({
+            where: { id: input.taskId },
+            data: { desktopOpen: false, desktopName: null },
+          });
+        } catch (e) {
+          console.error('[router] Failed to persist desktopOpen:', e);
+        }
+      }
+      return { success: true };
     }),
 
   // ─── Window Controls ─────────────────────────────────

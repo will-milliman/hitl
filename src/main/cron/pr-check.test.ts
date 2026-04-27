@@ -5,13 +5,14 @@
  * updatePrReadiness, checkTaskPRMerges — with mocked DB
  * and external modules.
  */
-import { exec, execFile } from 'child_process';
+import { execFile } from 'child_process';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GridState } from '../../shared/constants';
 import { getPullRequestByUrl, isGhAuthenticated } from '../github';
 import { notifyTaskCompleted } from '../notifications';
 import { makePullRequest, makeTask } from '../test-utils/factories';
+import { closeDesktop } from '../virtual-desktop';
 
 // ─── Imports (after mocks) ─────────────────────────────────
 
@@ -42,6 +43,7 @@ vi.mock('../db', () => ({
 
 vi.mock('../github', () => ({
   isGhAuthenticated: vi.fn().mockResolvedValue(true),
+  findPullRequest: vi.fn().mockResolvedValue(null),
   getPullRequestByUrl: vi.fn(),
   isPrReadyToMerge: vi.fn().mockReturnValue(false),
 }));
@@ -50,7 +52,7 @@ vi.mock('../notifications', () => ({
   notifyTaskCompleted: vi.fn(),
 }));
 
-// Mock child_process for cleanupCompletedTask (execFile) and closeVirtualDesktop
+// Mock child_process for cleanupCompletedTask (git checkout --detach)
 vi.mock('child_process', () => ({
   execFile: vi.fn((_cmd: string, _args: string[], _opts: unknown, cb: (...args: unknown[]) => void) => {
     cb(null, { stdout: '', stderr: '' });
@@ -76,6 +78,21 @@ vi.mock('util', async () => {
     }),
   };
 });
+
+// Mock the virtual-desktop module
+vi.mock('../virtual-desktop', () => ({
+  closeDesktop: vi.fn().mockResolvedValue({ success: true }),
+}));
+
+// Mock the worktree module (for discoverTaskPRs)
+vi.mock('../worktree', () => ({
+  getCurrentBranch: vi.fn().mockResolvedValue(null),
+}));
+
+// Mock the settings module (for discoverTaskPRs profile lookup)
+vi.mock('../settings', () => ({
+  loadProfiles: vi.fn().mockReturnValue({}),
+}));
 
 // ─── Tests ─────────────────────────────────────────────────
 
@@ -105,6 +122,7 @@ describe('runPrCheckStep', () => {
       });
 
       mockDb.task.findMany
+        .mockResolvedValueOnce([]) // discoverTaskPRs
         .mockResolvedValueOnce([task]) // checkDraftToReady
         .mockResolvedValueOnce([]) // updatePrReadiness
         .mockResolvedValueOnce([]); // checkTaskPRMerges
@@ -128,6 +146,7 @@ describe('runPrCheckStep', () => {
       });
 
       mockDb.task.findMany
+        .mockResolvedValueOnce([]) // discoverTaskPRs
         .mockResolvedValueOnce([task]) // checkDraftToReady
         .mockResolvedValueOnce([]) // updatePrReadiness
         .mockResolvedValueOnce([]); // checkTaskPRMerges
@@ -148,6 +167,7 @@ describe('runPrCheckStep', () => {
       });
 
       mockDb.task.findMany
+        .mockResolvedValueOnce([]) // discoverTaskPRs
         .mockResolvedValueOnce([task]) // checkDraftToReady
         .mockResolvedValueOnce([]) // updatePrReadiness
         .mockResolvedValueOnce([]); // checkTaskPRMerges
@@ -167,12 +187,17 @@ describe('runPrCheckStep', () => {
         prUrl: 'https://github.com/org/repo/pull/101',
         prMerged: false,
         worktreePath: 'C:/repos/test-wt',
+        desktopName: 'feature-branch-1001',
       });
 
       mockDb.task.findMany
+        .mockResolvedValueOnce([]) // discoverTaskPRs
         .mockResolvedValueOnce([]) // checkDraftToReady
         .mockResolvedValueOnce([]) // updatePrReadiness
         .mockResolvedValueOnce([task]); // checkTaskPRMerges
+
+      // cleanupCompletedTask reads desktopName before clearing DB
+      mockDb.task.findUnique.mockResolvedValueOnce({ desktopName: 'feature-branch-1001' });
 
       vi.mocked(getPullRequestByUrl).mockResolvedValueOnce(makePullRequest({ state: 'MERGED' }));
 
@@ -204,13 +229,8 @@ describe('runPrCheckStep', () => {
         expect.any(Function),
       );
 
-      // Verify virtual desktop close was attempted (PowerShell execFile)
-      expect(execFile).toHaveBeenCalledWith(
-        'powershell',
-        expect.arrayContaining([expect.stringContaining('Task #1001')]),
-        expect.any(Object),
-        expect.any(Function),
-      );
+      // Verify virtual desktop close was attempted via shared module
+      expect(closeDesktop).toHaveBeenCalledWith('feature-branch-1001', { hardFail: false });
     });
 
     it('does not change state when PR is still open', async () => {
@@ -223,6 +243,7 @@ describe('runPrCheckStep', () => {
       });
 
       mockDb.task.findMany
+        .mockResolvedValueOnce([]) // discoverTaskPRs
         .mockResolvedValueOnce([]) // checkDraftToReady
         .mockResolvedValueOnce([]) // updatePrReadiness
         .mockResolvedValueOnce([task]); // checkTaskPRMerges
@@ -245,9 +266,13 @@ describe('runPrCheckStep', () => {
       });
 
       mockDb.task.findMany
+        .mockResolvedValueOnce([]) // discoverTaskPRs
         .mockResolvedValueOnce([]) // checkDraftToReady
         .mockResolvedValueOnce([]) // updatePrReadiness
         .mockResolvedValueOnce([task]); // checkTaskPRMerges
+
+      // cleanupCompletedTask reads desktopName before clearing DB
+      mockDb.task.findUnique.mockResolvedValueOnce({ desktopName: null });
 
       vi.mocked(getPullRequestByUrl).mockResolvedValueOnce(makePullRequest({ state: 'CLOSED' }));
 
@@ -289,6 +314,7 @@ describe('runPrCheckStep', () => {
       });
 
       mockDb.task.findMany
+        .mockResolvedValueOnce([]) // discoverTaskPRs
         .mockResolvedValueOnce([]) // checkDraftToReady
         .mockResolvedValueOnce([]) // updatePrReadiness
         .mockResolvedValueOnce([task]); // checkTaskPRMerges
@@ -309,20 +335,21 @@ describe('runPrCheckStep', () => {
       });
 
       mockDb.task.findMany
+        .mockResolvedValueOnce([]) // discoverTaskPRs
         .mockResolvedValueOnce([]) // checkDraftToReady
         .mockResolvedValueOnce([]) // updatePrReadiness
         .mockResolvedValueOnce([task]); // checkTaskPRMerges
 
       vi.mocked(getPullRequestByUrl).mockResolvedValueOnce(makePullRequest({ state: 'MERGED' }));
 
+      // cleanupCompletedTask reads desktopName before clearing DB
+      mockDb.task.findUnique.mockResolvedValueOnce({ desktopName: null });
+
       // First update succeeds (COMPLETED), second fails (park worktree)
       mockDb.task.update.mockResolvedValueOnce({}).mockRejectedValueOnce(new Error('DB error'));
 
       // Virtual desktop close also fails
-      vi.mocked(exec).mockImplementationOnce(((_cmd: unknown, _opts: unknown, cb: unknown) => {
-        (cb as (...args: unknown[]) => void)(new Error('PowerShell not found'));
-        return {} as any;
-      }) as any);
+      vi.mocked(closeDesktop).mockResolvedValueOnce({ success: false, error: 'PowerShell not found' });
 
       // Should not throw — cleanup failures are non-fatal
       await expect(runPrCheckStep()).resolves.not.toThrow();

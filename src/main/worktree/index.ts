@@ -259,6 +259,28 @@ export function getBranchName(type: 'story' | 'task', workItemId: number, title?
 }
 
 /**
+ * Converts a branch name like `task/88888/key-words` into a desktop-friendly
+ * name like `key-words-88888`. This puts the human-readable keywords first so
+ * they remain visible when the OS truncates (ellipsizes) long names.
+ *
+ * Falls back to the raw branch name if the format is unrecognised.
+ */
+export function toDesktopName(branchName: string): string {
+  // Expected format: type/id/keywords  (e.g. "task/12345/add-feature")
+  const parts = branchName.split('/');
+  if (parts.length >= 3) {
+    const id = parts[1];
+    const keywords = parts.slice(2).join('-');
+    return `${keywords}-${id}`;
+  }
+  // type/id only (no keywords) — just show the id
+  if (parts.length === 2 && /^\d+$/.test(parts[1])) {
+    return `${parts[0]}-${parts[1]}`;
+  }
+  return branchName;
+}
+
+/**
  * Generates a unique branch name by checking if the branch already exists.
  *
  * If the base branch name (with keywords) already exists, appends a
@@ -509,11 +531,28 @@ export async function repurposeWorktree(
   // Fetch latest from origin
   await git(['fetch', 'origin'], { cwd: repoPath });
 
+  // Clean the worktree before repurposing — discard any leftover changes
+  // from a previous task so `git checkout -b` doesn't fail on dirty state.
+  await git(['reset', '--hard'], { cwd: worktreePath });
+  await git(['clean', '-fd'], { cwd: worktreePath });
+
+  // Detach HEAD so the old branch doesn't interfere with the new checkout.
+  // Idle worktrees should already be detached (from cleanupCompletedTask),
+  // but non-managed or incompletely-cleaned worktrees may still be on a
+  // named branch (e.g. one created outside HITL).
+  await git(['checkout', '--detach'], { cwd: worktreePath });
+
   // Generate a unique branch name with keywords
   const branchName = await getUniqueBranchName(repoPath, type, workItemId, title);
 
   // Create and check out new branch from origin/defaultBranch
   await git(['checkout', '-b', branchName, base], { cwd: worktreePath });
+
+  // Verify the checkout landed on the correct branch
+  const { stdout: actualBranch } = await git(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: worktreePath });
+  if (actualBranch.trim() !== branchName) {
+    throw new Error(`repurposeWorktree: expected branch "${branchName}" but worktree is on "${actualBranch.trim()}"`);
+  }
 
   return worktreePath;
 }
